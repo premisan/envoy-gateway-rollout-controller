@@ -12,7 +12,8 @@ spec:
 
   # Gateway resource definition
   gateway:
-    name: "eg-prod"
+    name: "eg"
+    gatewayClassName: "eg"
     listeners:
       - name: http
         protocol: HTTP
@@ -24,6 +25,7 @@ spec:
 
   # DataPlane DaemonSet configuration
   envoyProxy:
+    name: "proxy-config"
     nodeSelector:
       node-role.kubernetes.io/ingress: "true"
     tolerations:

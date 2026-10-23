@@ -48,8 +48,9 @@ type EnvoyGatewayRolloutSpec struct {
 
 // GatewayConfig specifies the Gateway resource parameters
 type GatewayConfig struct {
-	Name      string            `json:"name"`
-	Listeners []ListenerConfig  `json:"listeners,omitempty"`
+	Name             string           `json:"name"`
+	GatewayClassName string           `json:"gatewayClassName,omitempty"`
+	Listeners        []ListenerConfig `json:"listeners,omitempty"`
 }
 
 // ListenerConfig specifies ports and TLS configurations
@@ -62,6 +63,7 @@ type ListenerConfig struct {
 
 // EnvoyProxyConfig defines DataPlane DaemonSet settings
 type EnvoyProxyConfig struct {
+	Name         string              `json:"name,omitempty"`
 	NodeSelector map[string]string   `json:"nodeSelector,omitempty"`
 	Tolerations  []corev1.Toleration `json:"tolerations,omitempty"`
 	Annotations  map[string]string   `json:"annotations,omitempty"`

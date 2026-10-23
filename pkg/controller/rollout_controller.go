@@ -395,25 +395,33 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 	}
 
 	// 1. GatewayClass
+	gwClassName := rollout.Spec.Gateway.GatewayClassName
+	if gwClassName == "" {
+		gwClassName = "eg"
+	}
 	gwClass := &unstructured.Unstructured{}
 	gwClass.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "gateway.networking.k8s.io",
 		Version: "v1",
 		Kind:    "GatewayClass",
 	})
-	gwClass.SetName(rollout.Name)
+	gwClass.SetName(gwClassName)
 	gwClass.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 	_ = unstructured.SetNestedField(gwClass.Object, "gateway.envoyproxy.io/gatewayclass-controller", "spec", "controllerName")
 	_ = r.Create(ctx, gwClass) // Ignore if already exists
 
 	// 2. EnvoyProxy (matches user's real configuration with nodeSelector and tolerations)
+	envoyProxyName := rollout.Spec.EnvoyProxy.Name
+	if envoyProxyName == "" {
+		envoyProxyName = "proxy-config"
+	}
 	envoyProxy := &unstructured.Unstructured{}
 	envoyProxy.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "gateway.envoyproxy.io",
 		Version: "v1alpha1",
 		Kind:    "EnvoyProxy",
 	})
-	envoyProxy.SetName(fmt.Sprintf("proxy-config-%s", rollout.Name))
+	envoyProxy.SetName(envoyProxyName)
 	envoyProxy.SetNamespace(targetNamespace)
 	envoyProxy.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
 
@@ -438,16 +446,16 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 	_ = r.Create(ctx, envoyProxy)
 
 	// 3. Gateway Resource
+	gwName := rollout.Spec.Gateway.Name
+	if gwName == "" {
+		gwName = "eg"
+	}
 	gw := &unstructured.Unstructured{}
 	gw.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   "gateway.networking.k8s.io",
 		Version: "v1",
 		Kind:    "Gateway",
 	})
-	gwName := rollout.Spec.Gateway.Name
-	if gwName == "" {
-		gwName = rollout.Name
-	}
 	gw.SetName(gwName)
 	gw.SetNamespace(targetNamespace)
 	gw.SetOwnerReferences([]metav1.OwnerReference{ownerRef})
@@ -479,7 +487,14 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 		listeners = append(listeners, listenerObj)
 	}
 
-	_ = unstructured.SetNestedField(gw.Object, gwClass.GetName(), "spec", "gatewayClassName")
+	_ = unstructured.SetNestedField(gw.Object, gwClassName, "spec", "gatewayClassName")
+	_ = unstructured.SetNestedMap(gw.Object, map[string]interface{}{
+		"parametersRef": map[string]interface{}{
+			"group": "gateway.envoyproxy.io",
+			"kind":  "EnvoyProxy",
+			"name":  envoyProxyName,
+		},
+	}, "spec", "infrastructure")
 	_ = unstructured.SetNestedSlice(gw.Object, listeners, "spec", "listeners")
 	_ = r.Create(ctx, gw)
 

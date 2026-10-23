@@ -43,9 +43,9 @@ Kubernetes 환경에서 **Envoy Gateway의 컨트롤 플레인 및 데이터 플
                 ▼                        ▼
 ┌──────────────────────────┐    ┌─────────────────────────────────┐
 │   Ephemeral Prometheus   │    │     Child Resources in ArgoCD   │
-│ (롤아웃 기간에만 임시 기동) │    │ - GatewayClass                  │
-│ - Envoy 5xx 에러율 (<1%) │    │ - EnvoyProxy (DaemonSet 설정)   │
-│ - Upstream Connection Error│  │ - Gateway (Port 80, 443 + TLS)  │
+│ (롤아웃 기간에만 임시 기동) │    │ - GatewayClass (eg)             │
+│ - Envoy 5xx 에러율 (<1%) │    │ - EnvoyProxy (proxy-config)     │
+│ - Upstream Connection Error│  │ - Gateway (eg - Port 80, 443)   │
 └──────────────────────────┘    └─────────────────┬───────────────┘
                                                   │
                                                   ▼
@@ -79,7 +79,8 @@ spec:
 
   # Gateway 리소스 정의 (리스너 및 인증서)
   gateway:
-    name: "eg-prod"
+    name: "eg"
+    gatewayClassName: "eg"
     listeners:
       - name: http
         protocol: HTTP
@@ -91,6 +92,7 @@ spec:
 
   # 데이터 플레인 데몬셋 설정 (노드 그룹 및 Toleration 정의)
   envoyProxy:
+    name: "proxy-config"
     nodeSelector:
       node-role.kubernetes.io/ingress: "true"
     tolerations:

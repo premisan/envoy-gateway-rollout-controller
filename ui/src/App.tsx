@@ -18,7 +18,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
     version: 'v1.6.1',
     targetNamespace: 'envoy-gateway-system',
     gateway: {
-      name: 'eg-prod-gateway',
+      name: 'eg',
     },
     strategy: {
       steps: [

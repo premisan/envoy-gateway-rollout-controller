@@ -64,6 +64,9 @@ spec:
                   properties:
                     name:
                       type: string
+                    gatewayClassName:
+                      type: string
+                      description: "GatewayClass name (default: eg)"
                     listeners:
                       type: array
                       items:
@@ -85,6 +88,9 @@ spec:
                 envoyProxy:
                   type: object
                   properties:
+                    name:
+                      type: string
+                      description: "EnvoyProxy resource name (default: proxy-config)"
                     nodeSelector:
                       type: object
                       additionalProperties:
