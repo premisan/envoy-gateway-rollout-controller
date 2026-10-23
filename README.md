@@ -68,7 +68,7 @@ ArgoCD Git 저장소에 아래 매니페스트만 선언해 두면 전체 라이
 apiVersion: rollout.envoyproxy.io/v1alpha1
 kind: EnvoyGatewayRollout
 metadata:
-  name: eg-rollout-prod
+  name: eg
   namespace: envoy-gateway-system
 spec:
   # 대상 Envoy Gateway 버전 (예: v1.8.5 -> v1.9.2)

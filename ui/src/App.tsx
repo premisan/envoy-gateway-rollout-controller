@@ -10,7 +10,7 @@ import { RefreshCw, PlusCircle, AlertCircle } from 'lucide-react';
 
 const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
   metadata: {
-    name: 'eg-rollout-prod',
+    name: 'eg',
     namespace: 'envoy-gateway-system',
     creationTimestamp: new Date().toISOString(),
   },
@@ -47,7 +47,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
     currentStep: 1,
     totalSteps: 3,
     stepTimeRemaining: '2m 14s',
-    ephemeralPrometheusUrl: 'http://egr-prom-eg-rollout-prod.envoy-gateway-system.svc:9090',
+    ephemeralPrometheusUrl: 'http://egr-prom-eg.envoy-gateway-system.svc:9090',
     consecutiveFailures: 0,
     message: 'Observing Step 1/3 (1 node canary). Prometheus metrics within safe threshold.',
     nodes: [
@@ -90,7 +90,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
 
 export function App() {
   const [rollouts, setRollouts] = useState<RolloutItem[]>([SAMPLE_FALLBACK_ROLLOUT]);
-  const [selectedRolloutName, setSelectedRolloutName] = useState<string>('eg-rollout-prod');
+  const [selectedRolloutName, setSelectedRolloutName] = useState<string>('eg');
   const [connected, setConnected] = useState<boolean>(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
 

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: default
+  labels:
+    app: traffic-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+    spec:
+      containers:
+      - name: curl-loop
+        image: curlimages/curl:8.10.1
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Starting continuous traffic generator against Envoy Gateway..."
+          TARGET="http://envoy-proxy.envoy-gateway-system.svc.cluster.local:80/"
+          TOTAL=0
+          SUCCESS=0
+          FAIL=0
+          while true; do
+            TOTAL=$((TOTAL + 1))
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 "$TARGET" || echo "ERR")
+            if [ "$CODE" = "200" ]; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              FAIL=$((FAIL + 1))
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: HTTP $CODE (Total: $TOTAL, Fail: $FAIL)"
+            fi
+            if [ $((TOTAL % 50)) -eq 0 ]; then
+              ERR_RATE=$(awk "BEGIN {printf \"%.2f\", ($FAIL/$TOTAL)*100}")
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] Stats: Total=$TOTAL, 200_OK=$SUCCESS, Failed=$FAIL, ErrorRate=${ERR_RATE}%"
+            fi
+            sleep 0.1
+          done

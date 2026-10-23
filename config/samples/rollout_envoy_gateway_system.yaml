@@ -1,7 +1,7 @@
 apiVersion: rollout.envoyproxy.io/v1alpha1
 kind: EnvoyGatewayRollout
 metadata:
-  name: eg-rollout-prod
+  name: eg
   namespace: envoy-gateway-system
 spec:
   # Target Envoy Gateway release version
