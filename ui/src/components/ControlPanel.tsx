@@ -38,23 +38,18 @@ export const ControlPanel: React.FC<Props> = ({
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h3 className="font-bold text-white text-base">{t('controlPanelTitle')}</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {t('controlPanelSubtitle')}
-          </p>
-        </div>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h3 className="font-bold text-slate-900 text-sm">{t('controlPanelTitle')}</h3>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Upgrade Button */}
           <button
             onClick={onOpenUpgradeModal}
             disabled={isRolloutActive}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
           >
-            <Sparkles className="w-4 h-4" />
+            <Sparkles className="w-3.5 h-3.5" />
             {t('btnUpgrade')}
           </button>
 
@@ -64,18 +59,18 @@ export const ControlPanel: React.FC<Props> = ({
               <button
                 onClick={() => handleAction('resume', onResume)}
                 disabled={loadingAction !== null}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-lg shadow-emerald-600/20"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm"
               >
-                <Play className="w-4 h-4 fill-current" />
+                <Play className="w-3.5 h-3.5 fill-current" />
                 {t('btnResume')}
               </button>
             ) : (
               <button
                 onClick={() => handleAction('pause', onPause)}
                 disabled={loadingAction !== null}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow-lg shadow-amber-600/20"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors shadow-sm"
               >
-                <Pause className="w-4 h-4 fill-current" />
+                <Pause className="w-3.5 h-3.5 fill-current" />
                 {t('btnPause')}
               </button>
             )
@@ -86,9 +81,9 @@ export const ControlPanel: React.FC<Props> = ({
             <button
               onClick={() => handleAction('promote', onForcePromote)}
               disabled={loadingAction !== null}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-colors"
             >
-              <FastForward className="w-4 h-4" />
+              <FastForward className="w-3.5 h-3.5" />
               {t('btnForcePromote')}
             </button>
           )}
@@ -96,17 +91,17 @@ export const ControlPanel: React.FC<Props> = ({
           {/* Immediate Rollback */}
           {isRolloutActive && (
             confirmAbort ? (
-              <div className="flex items-center gap-2 bg-rose-950/60 p-1 rounded-xl border border-rose-800">
-                <span className="text-[11px] text-rose-300 font-semibold px-2">{t('confirmAbort')}</span>
+              <div className="flex items-center gap-1.5 bg-rose-50 p-1 rounded-lg border border-rose-200">
+                <span className="text-[11px] text-rose-700 font-medium px-1.5">{t('confirmAbort')}</span>
                 <button
                   onClick={() => handleAction('abort', onAbort)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30"
+                  className="px-2.5 py-1 rounded text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm"
                 >
                   {t('btnAbort')}
                 </button>
                 <button
                   onClick={() => setConfirmAbort(false)}
-                  className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white"
+                  className="px-2 py-1 text-xs text-slate-500 hover:text-slate-700"
                 >
                   {t('btnCancel')}
                 </button>
@@ -114,9 +109,9 @@ export const ControlPanel: React.FC<Props> = ({
             ) : (
               <button
                 onClick={() => setConfirmAbort(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition-colors"
               >
-                <RotateCcw className="w-4 h-4" />
+                <RotateCcw className="w-3.5 h-3.5" />
                 {t('btnAbort')}
               </button>
             )

@@ -10,8 +10,6 @@ interface Props {
 
 export const MetricCharts: React.FC<Props> = ({
   metricsSnapshot = {},
-  failureLimit = 3,
-  consecutiveFailures = 0,
 }) => {
   const { t } = useI18n();
   const error5xxRate = metricsSnapshot['http-5xx-rate'] ?? 0.08;
@@ -22,42 +20,37 @@ export const MetricCharts: React.FC<Props> = ({
   const thresholdConn = 5.0;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
-      <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
-        <div>
-          <h3 className="font-bold text-white text-base flex items-center gap-2">
-            <Activity className="w-5 h-5 text-emerald-400" />
-            {t('metricAnalysisTitle')}
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {t('metricAnalysisSubtitle')}
-          </p>
-        </div>
-        <div className="text-xs text-slate-400 font-mono">
-          Evaluation Interval: <span className="text-sky-300">15s</span>
+    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-5">
+      <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
+        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+          <Activity className="w-4 h-4 text-emerald-600" />
+          {t('metricAnalysisTitle')}
+        </h3>
+        <div className="text-xs text-slate-500 font-mono">
+          Interval: <span className="text-slate-800 font-semibold">15s</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Metric 1: HTTP 5xx Error Rate */}
-        <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">{t('metric5xx')}</span>
-            <span className="text-[11px] font-mono text-rose-400 font-bold">Limit: 1.00%</span>
+        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-slate-700">{t('metric5xx')}</span>
+            <span className="text-[11px] font-mono text-rose-600 font-bold">Limit: 1.00%</span>
           </div>
 
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className={`text-3xl font-extrabold font-mono ${error5xxRate > threshold5xx ? 'text-rose-400' : 'text-emerald-400'}`}>
+          <div className="flex items-baseline gap-2 mb-2.5">
+            <span className={`text-2xl font-extrabold font-mono ${error5xxRate > threshold5xx ? 'text-rose-600' : 'text-emerald-600'}`}>
               {error5xxRate.toFixed(2)}%
             </span>
-            <span className="text-xs text-slate-500">Canary Nodes</span>
+            <span className="text-xs text-slate-400">Canary</span>
           </div>
 
           {/* Threshold Progress Bar with Red Line Indicator */}
-          <div className="relative pt-2">
-            <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+          <div className="relative pt-1">
+            <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
               <div
-                className={`h-2.5 rounded-full transition-all duration-500 ${
+                className={`h-2 rounded-full transition-all duration-500 ${
                   error5xxRate > threshold5xx ? 'bg-rose-500' : 'bg-emerald-500'
                 }`}
                 style={{ width: `${Math.min(100, (error5xxRate / 2.0) * 100)}%` }}
@@ -65,66 +58,66 @@ export const MetricCharts: React.FC<Props> = ({
             </div>
             {/* 1.0% Threshold Mark (middle at 50%) */}
             <div
-              className="absolute top-1 bottom-0 w-0.5 bg-rose-500/80 border-r border-rose-400"
+              className="absolute top-0 bottom-0 w-0.5 bg-rose-500"
               style={{ left: '50%' }}
-              title="1.0% Threshold"
+              title="1.0% Limit"
             />
           </div>
-          <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-1.5">
+          <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1">
             <span>0.0%</span>
-            <span className="text-rose-400 font-semibold">1.0% (Limit)</span>
+            <span className="text-rose-600 font-medium">1.0%</span>
             <span>2.0%</span>
           </div>
         </div>
 
         {/* Metric 2: Connection Errors */}
-        <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">{t('metricConnError')}</span>
-            <span className="text-[11px] font-mono text-amber-400 font-bold">Limit: 5/min</span>
+        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-slate-700">{t('metricConnError')}</span>
+            <span className="text-[11px] font-mono text-amber-600 font-bold">Limit: 5/min</span>
           </div>
 
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className={`text-3xl font-extrabold font-mono ${connErrors > thresholdConn ? 'text-rose-400' : 'text-slate-200'}`}>
+          <div className="flex items-baseline gap-2 mb-2.5">
+            <span className={`text-2xl font-extrabold font-mono ${connErrors > thresholdConn ? 'text-rose-600' : 'text-slate-800'}`}>
               {connErrors.toFixed(0)}
             </span>
-            <span className="text-xs text-slate-500">errors / min</span>
+            <span className="text-xs text-slate-400">errors / min</span>
           </div>
 
-          <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800 mt-2">
+          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden mt-1">
             <div
-              className="bg-sky-500 h-2.5 rounded-full transition-all duration-500"
+              className="bg-sky-600 h-2 rounded-full transition-all duration-500"
               style={{ width: `${Math.min(100, (connErrors / 10.0) * 100)}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-1.5">
+          <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1">
             <span>0</span>
-            <span className="text-amber-400">5 (Limit)</span>
+            <span className="text-amber-600">5</span>
             <span>10+</span>
           </div>
         </div>
 
         {/* Metric 3: P99 Latency */}
-        <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">{t('metricLatency')}</span>
-            <span className="text-[11px] font-mono text-emerald-400">Normal</span>
+        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-semibold text-slate-700">{t('metricLatency')}</span>
+            <span className="text-[11px] font-mono text-emerald-600">Normal</span>
           </div>
 
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="text-3xl font-extrabold font-mono text-sky-400">
+          <div className="flex items-baseline gap-2 mb-2.5">
+            <span className="text-2xl font-extrabold font-mono text-slate-800">
               {latencyP99.toFixed(1)}
             </span>
-            <span className="text-xs text-slate-500">milliseconds</span>
+            <span className="text-xs text-slate-400">ms</span>
           </div>
 
-          <div className="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800 mt-2">
+          <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden mt-1">
             <div
-              className="bg-sky-500/70 h-2.5 rounded-full transition-all duration-500"
+              className="bg-sky-600 h-2 rounded-full transition-all duration-500"
               style={{ width: `${Math.min(100, (latencyP99 / 100.0) * 100)}%` }}
             />
           </div>
-          <div className="flex justify-between text-[10px] text-slate-500 font-mono mt-1.5">
+          <div className="flex justify-between text-[10px] text-slate-400 font-mono mt-1">
             <span>0ms</span>
             <span>50ms</span>
             <span>100ms</span>

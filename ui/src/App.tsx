@@ -162,10 +162,10 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Navbar connected={connected} activeRolloutsCount={rollouts.length} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-5">
         {selectedRollout ? (
           <>
             <ControlPanel
@@ -203,7 +203,7 @@ export function App() {
         )}
       </main>
 
-      <footer className="border-t border-slate-900 py-4 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-200 py-3 text-center text-xs text-slate-500 bg-white">
         {t('footerText')}
       </footer>
     </div>

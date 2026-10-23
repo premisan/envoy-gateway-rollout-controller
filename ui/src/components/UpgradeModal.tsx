@@ -55,7 +55,6 @@ export const UpgradeModal: React.FC<Props> = ({
         const data: ReleaseInfo[] = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           setReleases(data);
-          // Default to latest version if different from current
           if (data[0].version !== currentVersion) {
             setSelectedVersion(data[0].version);
           } else if (data.length > 1) {
@@ -94,100 +93,93 @@ export const UpgradeModal: React.FC<Props> = ({
   const selectedRelease = releases.find((r) => r.version === selectedVersion);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 shadow-xl relative">
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4" />
         </button>
 
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-400">
-            <Sparkles className="w-5 h-5" />
+        <div className="flex items-center gap-2.5 mb-4">
+          <div className="p-2 bg-sky-50 border border-sky-100 rounded-lg text-sky-600">
+            <Sparkles className="w-4 h-4" />
           </div>
-          <div>
-            <h3 className="font-bold text-white text-base">{t('modalTitle')}</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {t('modalSubtitle')}
-            </p>
-          </div>
+          <h3 className="font-bold text-slate-900 text-sm">{t('modalTitle')}</h3>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {t('currentVersionLabel')}
-              </label>
-              <input
-                type="text"
-                disabled
-                value={currentVersion || 'v1.8.5'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-emerald-400 font-bold cursor-not-allowed"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-semibold text-slate-300">
-                  {t('selectVersionLabel')}
-                </label>
-                {loadingReleases && (
-                  <span className="text-[11px] text-sky-400 flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> {t('fetchingReleases')}
-                  </span>
-                )}
-              </div>
-
-              <select
-                value={selectedVersion}
-                onChange={(e) => {
-                  setSelectedVersion(e.target.value);
-                  setError('');
-                }}
-                className="w-full bg-slate-950 border border-sky-600/50 focus:border-sky-500 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono text-white cursor-pointer"
-              >
-                {releases.map((rel, idx) => (
-                  <option key={rel.version} value={rel.version} className="bg-slate-900 py-1">
-                    {rel.version} {idx === 0 ? `(${t('latestBadge')})` : ''} {rel.version === currentVersion ? `(${t('activeVersion')})` : ''}
-                  </option>
-                ))}
-              </select>
-
-              {/* Helm OCI Information Box */}
-              <div className="mt-2.5 p-3 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 font-mono">
-                <div className="flex items-center gap-1.5 text-sky-300 mb-1 font-semibold">
-                  <PackageCheck className="w-3.5 h-3.5" />
-                  {t('helmChartPreview')}
-                </div>
-                <div className="text-slate-300 break-all select-all">
-                  {selectedRelease?.helmChart || `oci://docker.io/envoyproxy/gateway-helm:${selectedVersion}`}
-                </div>
-              </div>
-            </div>
-
-            {error && (
-              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+        <form onSubmit={handleSubmit} className="space-y-3.5">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              {t('currentVersionLabel')}
+            </label>
+            <input
+              type="text"
+              disabled
+              value={currentVersion || 'v1.8.5'}
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-700 font-bold cursor-not-allowed"
+            />
           </div>
 
-          <div className="flex items-center justify-end gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">
+                {t('selectVersionLabel')}
+              </label>
+              {loadingReleases && (
+                <span className="text-[11px] text-sky-600 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> {t('fetchingReleases')}
+                </span>
+              )}
+            </div>
+
+            <select
+              value={selectedVersion}
+              onChange={(e) => {
+                setSelectedVersion(e.target.value);
+                setError('');
+              }}
+              className="w-full bg-white border border-slate-300 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-900 cursor-pointer"
+            >
+              {releases.map((rel, idx) => (
+                <option key={rel.version} value={rel.version}>
+                  {rel.version} {idx === 0 ? `(${t('latestBadge')})` : ''} {rel.version === currentVersion ? `(${t('activeVersion')})` : ''}
+                </option>
+              ))}
+            </select>
+
+            {/* Helm OCI Information Box */}
+            <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 font-mono">
+              <div className="flex items-center gap-1 text-sky-700 mb-0.5 font-semibold">
+                <PackageCheck className="w-3.5 h-3.5" />
+                {t('helmChartPreview')}
+              </div>
+              <div className="text-slate-800 break-all select-all text-[10px]">
+                {selectedRelease?.helmChart || `oci://docker.io/envoyproxy/gateway-helm:${selectedVersion}`}
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
             >
               {t('btnCancel')}
             </button>
             <button
               type="submit"
               disabled={loading || selectedVersion === currentVersion}
-              className="px-5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
             >
               {loading ? t('btnLaunching') : `${t('btnLaunch')} ${selectedVersion}`}
             </button>

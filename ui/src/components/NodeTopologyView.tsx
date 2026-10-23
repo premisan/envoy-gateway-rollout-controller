@@ -13,72 +13,66 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
   const getNodeBorder = (phase: string) => {
     switch (phase) {
       case 'Canary':
-        return 'border-sky-500 bg-sky-950/20 shadow-sky-500/10 shadow-lg';
+        return 'border-sky-300 bg-sky-50/40 shadow-sm';
       case 'Draining':
-        return 'border-purple-500 bg-purple-950/20 shadow-purple-500/10 shadow-lg';
+        return 'border-purple-300 bg-purple-50/40 shadow-sm';
       case 'Completed':
       case 'Stable':
-        return 'border-emerald-500/50 bg-slate-900';
+        return 'border-slate-200 bg-white shadow-sm';
       case 'RolledBack':
-        return 'border-rose-500 bg-rose-950/20';
+        return 'border-rose-300 bg-rose-50/40';
       default:
-        return 'border-slate-800 bg-slate-900';
+        return 'border-slate-200 bg-slate-50';
     }
   };
 
   const getStatusBadge = (phase: string) => {
     switch (phase) {
       case 'Canary':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse">CANARY</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-700 border border-sky-200 animate-pulse">CANARY</span>;
       case 'Draining':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">{t('drainProgress')}</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">DRAINING</span>;
       case 'Completed':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">{t('statusCompleted')}</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">DONE</span>;
       case 'Stable':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">STABLE</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">STABLE</span>;
       case 'RolledBack':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">ROLLED BACK</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200">ROLLED BACK</span>;
       default:
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">{phase}</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">{phase}</span>;
     }
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
-      <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
-        <div>
-          <h3 className="font-bold text-white text-base flex items-center gap-2">
-            <Server className="w-5 h-5 text-sky-400" />
-            {t('nodeTopologyTitle')}
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {t('nodeTopologySubtitle')}
-          </p>
-        </div>
+    <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm mb-5">
+      <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
+        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+          <Server className="w-4 h-4 text-sky-600" />
+          {t('nodeTopologyTitle')}
+        </h3>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400" /> {t('nodeFilterStable')}</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> {t('nodeFilterCanary')}</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-400" /> {t('nodeFilterDraining')}</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-400" /> Rolled Back</div>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" /> {t('nodeFilterStable')}</div>
+          <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-sky-500" /> {t('nodeFilterCanary')}</div>
+          <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-purple-500" /> {t('nodeFilterDraining')}</div>
         </div>
       </div>
 
       {nodes.length === 0 ? (
-        <div className="py-12 text-center text-slate-500 text-sm">
-          No active worker nodes found. Controller is discovering nodes matching NodeSelector...
+        <div className="py-8 text-center text-slate-400 text-xs">
+          No worker nodes found.
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {nodes.map((node) => (
             <div
               key={node.nodeName}
-              className={`rounded-xl border p-4 transition-all duration-300 ${getNodeBorder(node.phase)}`}
+              className={`rounded-lg border p-3.5 transition-all ${getNodeBorder(node.phase)}`}
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between mb-2.5">
                 <div>
-                  <div className="font-mono text-sm font-bold text-white flex items-center gap-2">
+                  <div className="font-mono text-xs font-bold text-slate-900">
                     {node.nodeName}
                   </div>
                   <div className="text-[11px] font-mono text-slate-400">{node.nodeIP}</div>
@@ -87,14 +81,14 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
               </div>
 
               {/* Version Info */}
-              <div className="bg-slate-950/70 rounded-lg p-2.5 mb-3 border border-slate-800/80 text-xs font-mono">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-slate-400">{t('activeVersion')}:</span>
-                  <span className="text-emerald-400 font-semibold">{node.activeVersion}</span>
+              <div className="bg-slate-50 rounded-lg p-2 mb-2.5 border border-slate-200/80 text-xs font-mono">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-500">{t('activeVersion')}:</span>
+                  <span className="text-emerald-700 font-semibold">{node.activeVersion}</span>
                 </div>
                 {node.canaryVersion && (
-                  <div className="flex justify-between items-center text-sky-400">
-                    <span>Canary Shadow:</span>
+                  <div className="flex justify-between items-center text-sky-700 text-[11px] mt-0.5">
+                    <span>Canary:</span>
                     <span className="font-semibold">{node.canaryVersion}</span>
                   </div>
                 )}
@@ -102,14 +96,14 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
 
               {/* Draining Progress Bar (if draining) */}
               {node.phase === 'Draining' && (
-                <div className="mb-3">
-                  <div className="flex justify-between text-[11px] text-purple-300 mb-1">
-                    <span className="flex items-center gap-1"><ArrowDownCircle className="w-3 h-3" /> Admin API Drain</span>
+                <div className="mb-2.5">
+                  <div className="flex justify-between text-[10px] text-purple-700 mb-1">
+                    <span className="flex items-center gap-1"><ArrowDownCircle className="w-3 h-3" /> Drain</span>
                     <span>{node.drainProgress}%</span>
                   </div>
-                  <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
+                      className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
                       style={{ width: `${node.drainProgress}%` }}
                     />
                   </div>
@@ -118,13 +112,13 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
 
               {/* Node Stats */}
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-slate-950/40 p-2 rounded border border-slate-800/60">
+                <div className="bg-slate-50 p-2 rounded border border-slate-200">
                   <div className="text-[10px] text-slate-400">{t('activeSessions')}</div>
-                  <div className="font-mono font-bold text-slate-200 mt-0.5">{node.activeSessions}</div>
+                  <div className="font-mono font-bold text-slate-800 mt-0.5">{node.activeSessions}</div>
                 </div>
-                <div className="bg-slate-950/40 p-2 rounded border border-slate-800/60">
-                  <div className="text-[10px] text-slate-400">5xx Error Count</div>
-                  <div className={`font-mono font-bold mt-0.5 ${node.errorCount5xx > 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                <div className="bg-slate-50 p-2 rounded border border-slate-200">
+                  <div className="text-[10px] text-slate-400">5xx Errors</div>
+                  <div className={`font-mono font-bold mt-0.5 ${node.errorCount5xx > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
                     {node.errorCount5xx}
                   </div>
                 </div>
