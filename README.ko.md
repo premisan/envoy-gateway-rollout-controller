@@ -218,7 +218,11 @@ kubectl apply -f config/manager/deployment.yaml
 kubectl apply -f config/manager/service.yaml
 
 # 3. 샘플 Rollout 리소스 생성
-kubectl apply -f config/samples/rollout_envoy_gateway_system.yaml
+kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
+kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
+
+# (선택) Nginx 샘플 워크로드 분리 배포 (ArgoCD)
+kubectl apply -f config/argocd/application-nginx.yaml
 
 # 4. EGRC 리소스 상태 확인 (단축어: egrc)
 kubectl get egrc -n envoy-gateway-system

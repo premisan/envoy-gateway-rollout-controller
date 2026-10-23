@@ -35,6 +35,21 @@ export const translations = {
     statusPending: 'Pending',
     targetGateway: 'Target Gateway',
 
+    // Pipeline
+    pipelineTitle: 'Live Rollout Lifecycle Pipeline',
+    pipelineSubtitle: 'Detailed stage-by-stage progression of canary deployment, metric analysis, and graceful listener draining',
+    step1Title: 'Canary Pod & xDS Sync',
+    step1Desc: 'Deploys shadow Envoy Proxy pod and verifies xDS route configuration',
+    step2Title: 'Ephemeral Metric Guardrail',
+    step2Desc: 'Spawns temporary Prometheus. Evaluates 5xx rate (<1%) & connection errors every 15s',
+    step3Title: 'Envoy Admin API Drain',
+    step3Desc: 'Calls /drain_listeners?inboundonly to shift traffic while preserving active sessions',
+    step4Title: 'Progressive Node Cutover',
+    step4Desc: 'Expands canary ratio progressively across worker node pools',
+    step5Title: 'Completion & Teardown',
+    step5Desc: 'All nodes upgraded. Auto-terminates ephemeral Prometheus and syncs ArgoCD health',
+    currentActionDetails: 'Current Execution Details',
+
     // NodeTopologyView
     nodeTopologyTitle: 'Worker Node Topology Grid',
     nodeTopologySubtitle: 'Live per-node canary deployment, drain progress, and active traffic distribution',
@@ -106,6 +121,21 @@ export const translations = {
     statusDegraded: '이상 감지 / 롤백',
     statusPending: '대기 중',
     targetGateway: '대상 Gateway',
+
+    // Pipeline
+    pipelineTitle: '실시간 롤아웃 생애주기 파이프라인',
+    pipelineSubtitle: '카나리 파드 배치, 임시 메트릭 분석, 리스너 세션 보존 드레인 및 단계별 절체 진행 현황',
+    step1Title: '카나리 파드 배치 & xDS 동기화',
+    step1Desc: '인그레스 노드에 카나리 파드를 배치하고 Envoy 컨트롤 플레인과 xDS 경로를 동기화합니다',
+    step2Title: '임시 프로메테우스 메트릭 분석',
+    step2Desc: '임시 프로메테우스를 기동하여 5초 주기로 5xx 에러율(<1%)과 커넥션 오류를 정밀 평가합니다',
+    step3Title: 'Envoy Admin API 리스너 드레인',
+    step3Desc: '/drain_listeners?inboundonly를 호출하여 기존 활성 세션을 보존하며 신규 트래픽을 안전 절체합니다',
+    step4Title: '점진적 노드 트래픽 승급',
+    step4Desc: '설정된 전략(1노드 ➔ 3노드 ➔ 100%)에 따라 전체 워커 노드 풀로 점진적 확장을 수행합니다',
+    step5Title: '완료 및 임시 자원 회수',
+    step5Desc: '모든 노드 업그레이드 완료. 임시 프로메테우스를 자동 회수하고 ArgoCD Health를 Healthy로 동기화합니다',
+    currentActionDetails: '현재 실행 상세',
 
     // NodeTopologyView
     nodeTopologyTitle: '워커 노드 토폴로지 그리드',

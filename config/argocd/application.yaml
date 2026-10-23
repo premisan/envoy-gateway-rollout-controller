@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: 'https://github.com/premisan/envoy-gateway-rollout-controller.git'
     targetRevision: main
-    path: config/samples
+    path: config/samples/envoy-gateway
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: envoy-gateway-system

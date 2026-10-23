@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Navbar } from './components/Navbar';
 import { RolloutHeader } from './components/RolloutHeader';
+import { RolloutPipelineView } from './components/RolloutPipelineView';
 import { NodeTopologyView } from './components/NodeTopologyView';
 import { MetricCharts } from './components/MetricCharts';
 import { ControlPanel } from './components/ControlPanel';
@@ -177,6 +178,8 @@ export function App() {
             />
 
             <RolloutHeader rollout={selectedRollout} />
+
+            <RolloutPipelineView rollout={selectedRollout} />
 
             <NodeTopologyView nodes={selectedRollout.status?.nodes} />
 

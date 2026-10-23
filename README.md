@@ -219,8 +219,11 @@ kubectl apply -f config/manager/deployment.yaml
 kubectl apply -f config/manager/service.yaml
 
 # 3. Create Sample Rollout Resource
-kubectl apply -f config/samples/tls_secret.yaml
-kubectl apply -f config/samples/rollout_envoy_gateway_system.yaml
+kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
+kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
+
+# (Optional) Deploy Sample Workload (Nginx) via ArgoCD
+kubectl apply -f config/argocd/application-nginx.yaml
 
 # 4. Check Status (Shortname: egrc)
 kubectl get egrc -n envoy-gateway-system
