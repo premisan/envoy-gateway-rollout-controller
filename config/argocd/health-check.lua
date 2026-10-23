@@ -20,10 +20,14 @@ if obj.status ~= nil then
     return hs
   elseif phase == "Observing" or phase == "CanaryRunning" or phase == "Deploying" or phase == "Draining" then
     hs.status = "Progressing"
-    local step = obj.status.currentStep or 1
-    local total = obj.status.totalSteps or 1
-    local remaining = obj.status.stepTimeRemaining or ""
-    hs.message = string.format("Step %d/%d (%s) - %s", step, total, remaining, msg)
+    local step = tostring(obj.status.currentStep or 1)
+    local total = tostring(obj.status.totalSteps or 1)
+    local remaining = tostring(obj.status.stepTimeRemaining or "")
+    if remaining ~= "" then
+      hs.message = "Step " .. step .. "/" .. total .. " (" .. remaining .. ") - " .. tostring(msg)
+    else
+      hs.message = "Step " .. step .. "/" .. total .. " - " .. tostring(msg)
+    end
     return hs
   end
 end

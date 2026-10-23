@@ -200,7 +200,7 @@ export function App() {
       </main>
 
       <footer className="border-t border-slate-900 py-4 text-center text-xs text-slate-500">
-        Envoy Gateway Zero-Downtime Rollout Controller &bull; envoy-gateway-system
+        Envoy Gateway Rollout Controller &bull; envoy-gateway-system
       </footer>
     </div>
   );

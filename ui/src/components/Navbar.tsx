@@ -16,10 +16,10 @@ export const Navbar: React.FC<Props> = ({ connected, activeRolloutsCount }) => {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-bold text-lg text-white tracking-wide">
-              Envoy Gateway Zero-Downtime Rollout
+              Envoy Gateway Rollout Controller
             </h1>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-sky-950 border border-sky-700 text-sky-300 font-mono">
-              v1.0.0-cr
+            <span className="text-xs px-2 py-0.5 rounded-full bg-sky-950 border border-sky-700 text-sky-300 font-mono font-bold">
+              EGRC
             </span>
           </div>
           <p className="text-xs text-slate-400">

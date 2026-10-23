@@ -1,11 +1,11 @@
-# Envoy Gateway Zero-Downtime Rollout Controller
+# Envoy Gateway Zero-Downtime Rollout Controller (EGRC)
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.30%2B-blue?logo=kubernetes)](https://kubernetes.io/)
 [![Envoy Gateway](https://img.shields.io/badge/Envoy%20Gateway-v1.6%2B-purple?logo=envoyproxy)](https://gateway.envoyproxy.io/)
 [![ArgoCD Ready](https://img.shields.io/badge/ArgoCD-GitOps%20Compatible-orange?logo=argo)](https://argoproj.github.io/cd/)
 [![Single Binary](https://img.shields.io/badge/Architecture-Single%20Container%20with%20Web%20UI-emerald)](#)
 
-Kubernetes 환경에서 **Envoy Gateway의 컨트롤 플레인 및 데이터 플레인(DaemonSet) 업그레이드 시 서비스 무중단(Zero Downtime)**을 달성하기 위한 전용 카나리 롤아웃 오퍼레이터 & 실시간 대시보드 플랫폼입니다.
+**EGRC(Envoy Gateway Rollout Controller)**는 Kubernetes 환경에서 **Envoy Gateway의 컨트롤 플레인 및 데이터 플레인(DaemonSet) 업그레이드 시 서비스 무중단(Zero Downtime)**을 달성하기 위한 전용 카나리 롤아웃 오퍼레이터 & 실시간 대시보드 플랫폼입니다.
 
 ---
 
@@ -212,4 +212,7 @@ kubectl apply -f config/manager/service.yaml
 
 # 3. 샘플 Rollout 리소스 생성
 kubectl apply -f config/samples/rollout_envoy_gateway_system.yaml
+
+# 4. EGRC 리소스 상태 확인 (단축어: egrc)
+kubectl get egrc -n envoy-gateway-system
 ```

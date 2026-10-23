@@ -10,6 +10,7 @@ spec:
     plural: envoygatewayrollouts
     singular: envoygatewayrollout
     shortNames:
+      - egrc
       - egrollout
       - egr
   scope: Namespaced

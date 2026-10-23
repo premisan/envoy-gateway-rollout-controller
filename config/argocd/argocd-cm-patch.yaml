@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: argocd-cm
   namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-cm
+    app.kubernetes.io/part-of: argocd
 data:
   # 1. Custom Health Check for EnvoyGatewayRollout
   resource.customizations.health.rollout.envoyproxy.io_EnvoyGatewayRollout: |
@@ -24,9 +27,9 @@ data:
         return hs
       else
         hs.status = "Progressing"
-        local step = obj.status.currentStep or 1
-        local total = obj.status.totalSteps or 1
-        hs.message = string.format("Rollout Step %d/%d in progress: %s", step, total, msg)
+        local step = tostring(obj.status.currentStep or 1)
+        local total = tostring(obj.status.totalSteps or 1)
+        hs.message = "Rollout Step " .. step .. "/" .. total .. " in progress: " .. tostring(msg)
         return hs
       end
     end

@@ -7,6 +7,7 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=egrc;egr;egrollout
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Target-Version",type="string",JSONPath=".spec.version"
 // +kubebuilder:printcolumn:name="Current-Step",type="integer",JSONPath=".status.currentStep"
