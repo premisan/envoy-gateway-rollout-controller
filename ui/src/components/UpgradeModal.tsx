@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Sparkles, AlertCircle, PackageCheck, Loader2 } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface ReleaseInfo {
   version: string;
@@ -33,6 +34,7 @@ export const UpgradeModal: React.FC<Props> = ({
   currentVersion,
   onConfirmUpgrade,
 }) => {
+  const { t } = useI18n();
   const [releases, setReleases] = useState<ReleaseInfo[]>(DEFAULT_RELEASES);
   const [selectedVersion, setSelectedVersion] = useState<string>('v1.9.2');
   const [loadingReleases, setLoadingReleases] = useState<boolean>(false);
@@ -61,8 +63,8 @@ export const UpgradeModal: React.FC<Props> = ({
           }
         }
       }
-    } catch (e) {
-      // Retain fallback list
+    } catch {
+      // Keep defaults
     } finally {
       setLoadingReleases(false);
     }
@@ -72,20 +74,18 @@ export const UpgradeModal: React.FC<Props> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVersion.trim()) return;
-
-    if (selectedVersion === currentVersion) {
-      setError(`Selected version ${selectedVersion} is already the active version.`);
+    if (!selectedVersion || selectedVersion === currentVersion) {
+      setError('Please select a different target release version.');
       return;
     }
 
     setLoading(true);
     setError('');
     try {
-      await onConfirmUpgrade(selectedVersion.trim());
+      await onConfirmUpgrade(selectedVersion);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Upgrade request failed');
+      setError(err?.message || 'Failed to trigger upgrade');
     } finally {
       setLoading(false);
     }
@@ -94,30 +94,32 @@ export const UpgradeModal: React.FC<Props> = ({
   const selectedRelease = releases.find((r) => r.version === selectedVersion);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white"
+          className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-5">
           <div className="p-2.5 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-400">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-bold text-lg text-white">Start Canary Upgrade</h3>
-            <p className="text-xs text-slate-400">Select an official Envoy Gateway release</p>
+            <h3 className="font-bold text-white text-base">{t('modalTitle')}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {t('modalSubtitle')}
+            </p>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 mb-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-3">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Current Active Version
+                {t('currentVersionLabel')}
               </label>
               <input
                 type="text"
@@ -130,11 +132,11 @@ export const UpgradeModal: React.FC<Props> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-semibold text-slate-300">
-                  Target Envoy Gateway Release
+                  {t('selectVersionLabel')}
                 </label>
                 {loadingReleases && (
                   <span className="text-[11px] text-sky-400 flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Fetching releases...
+                    <Loader2 className="w-3 h-3 animate-spin" /> {t('fetchingReleases')}
                   </span>
                 )}
               </div>
@@ -149,7 +151,7 @@ export const UpgradeModal: React.FC<Props> = ({
               >
                 {releases.map((rel, idx) => (
                   <option key={rel.version} value={rel.version} className="bg-slate-900 py-1">
-                    {rel.version} {idx === 0 ? '(Latest Stable)' : ''} {rel.version === currentVersion ? '(Current Active)' : ''}
+                    {rel.version} {idx === 0 ? `(${t('latestBadge')})` : ''} {rel.version === currentVersion ? `(${t('activeVersion')})` : ''}
                   </option>
                 ))}
               </select>
@@ -158,7 +160,7 @@ export const UpgradeModal: React.FC<Props> = ({
               <div className="mt-2.5 p-3 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 font-mono">
                 <div className="flex items-center gap-1.5 text-sky-300 mb-1 font-semibold">
                   <PackageCheck className="w-3.5 h-3.5" />
-                  Official Helm OCI Chart:
+                  {t('helmChartPreview')}
                 </div>
                 <div className="text-slate-300 break-all select-all">
                   {selectedRelease?.helmChart || `oci://docker.io/envoyproxy/gateway-helm:${selectedVersion}`}
@@ -180,14 +182,14 @@ export const UpgradeModal: React.FC<Props> = ({
               onClick={onClose}
               className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors"
             >
-              Cancel
+              {t('btnCancel')}
             </button>
             <button
               type="submit"
               disabled={loading || selectedVersion === currentVersion}
               className="px-5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {loading ? 'Starting...' : `Launch Canary to ${selectedVersion}`}
+              {loading ? t('btnLaunching') : `${t('btnLaunch')} ${selectedVersion}`}
             </button>
           </div>
         </form>

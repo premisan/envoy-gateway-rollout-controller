@@ -1,12 +1,15 @@
 import React from 'react';
 import { NodeStatus } from '../types';
-import { Server, Activity, ArrowDownCircle, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Server, ArrowDownCircle } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface Props {
   nodes?: NodeStatus[];
 }
 
 export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
+  const { t } = useI18n();
+
   const getNodeBorder = (phase: string) => {
     switch (phase) {
       case 'Canary':
@@ -26,11 +29,11 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
   const getStatusBadge = (phase: string) => {
     switch (phase) {
       case 'Canary':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse">CANARY SERVING</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-300 border border-sky-500/40 animate-pulse">CANARY</span>;
       case 'Draining':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">DRAINING</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">{t('drainProgress')}</span>;
       case 'Completed':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">UPGRADED</span>;
+        return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">{t('statusCompleted')}</span>;
       case 'Stable':
         return <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">STABLE</span>;
       case 'RolledBack':
@@ -46,18 +49,18 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
         <div>
           <h3 className="font-bold text-white text-base flex items-center gap-2">
             <Server className="w-5 h-5 text-sky-400" />
-            Node Topology & DataPlane Pod Grid
+            {t('nodeTopologyTitle')}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Real-time status of LB worker nodes running Envoy Proxy DaemonSet
+            {t('nodeTopologySubtitle')}
           </p>
         </div>
 
         {/* Legend */}
         <div className="flex items-center gap-3 text-[11px] text-slate-400">
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400" /> Stable</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Canary</div>
-          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-400" /> Draining</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400" /> {t('nodeFilterStable')}</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> {t('nodeFilterCanary')}</div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-purple-400" /> {t('nodeFilterDraining')}</div>
           <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-rose-400" /> Rolled Back</div>
         </div>
       </div>
@@ -86,7 +89,7 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
               {/* Version Info */}
               <div className="bg-slate-950/70 rounded-lg p-2.5 mb-3 border border-slate-800/80 text-xs font-mono">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-slate-400">Active Envoy:</span>
+                  <span className="text-slate-400">{t('activeVersion')}:</span>
                   <span className="text-emerald-400 font-semibold">{node.activeVersion}</span>
                 </div>
                 {node.canaryVersion && (
@@ -116,7 +119,7 @@ export const NodeTopologyView: React.FC<Props> = ({ nodes = [] }) => {
               {/* Node Stats */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-slate-950/40 p-2 rounded border border-slate-800/60">
-                  <div className="text-[10px] text-slate-400">Active Sessions</div>
+                  <div className="text-[10px] text-slate-400">{t('activeSessions')}</div>
                   <div className="font-mono font-bold text-slate-200 mt-0.5">{node.activeSessions}</div>
                 </div>
                 <div className="bg-slate-950/40 p-2 rounded border border-slate-800/60">

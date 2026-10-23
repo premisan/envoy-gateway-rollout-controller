@@ -1,5 +1,6 @@
 import React from 'react';
-import { Activity, Zap, ShieldAlert, Cpu } from 'lucide-react';
+import { Activity } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface Props {
   metricsSnapshot?: Record<string, number>;
@@ -12,6 +13,7 @@ export const MetricCharts: React.FC<Props> = ({
   failureLimit = 3,
   consecutiveFailures = 0,
 }) => {
+  const { t } = useI18n();
   const error5xxRate = metricsSnapshot['http-5xx-rate'] ?? 0.08;
   const connErrors = metricsSnapshot['connection-errors'] ?? 0.0;
   const latencyP99 = metricsSnapshot['p99-latency'] ?? 14.2;
@@ -25,10 +27,10 @@ export const MetricCharts: React.FC<Props> = ({
         <div>
           <h3 className="font-bold text-white text-base flex items-center gap-2">
             <Activity className="w-5 h-5 text-emerald-400" />
-            Live Prometheus Metric Analyzer
+            {t('metricAnalysisTitle')}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Streaming PromQL evaluations directly from Ephemeral Prometheus
+            {t('metricAnalysisSubtitle')}
           </p>
         </div>
         <div className="text-xs text-slate-400 font-mono">
@@ -40,7 +42,7 @@ export const MetricCharts: React.FC<Props> = ({
         {/* Metric 1: HTTP 5xx Error Rate */}
         <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">HTTP 5xx Error Rate</span>
+            <span className="text-xs font-semibold text-slate-300">{t('metric5xx')}</span>
             <span className="text-[11px] font-mono text-rose-400 font-bold">Limit: 1.00%</span>
           </div>
 
@@ -78,7 +80,7 @@ export const MetricCharts: React.FC<Props> = ({
         {/* Metric 2: Connection Errors */}
         <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">Total Connection Errors</span>
+            <span className="text-xs font-semibold text-slate-300">{t('metricConnError')}</span>
             <span className="text-[11px] font-mono text-amber-400 font-bold">Limit: 5/min</span>
           </div>
 
@@ -105,7 +107,7 @@ export const MetricCharts: React.FC<Props> = ({
         {/* Metric 3: P99 Latency */}
         <div className="bg-slate-950/60 p-5 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-300">P99 Upstream Latency</span>
+            <span className="text-xs font-semibold text-slate-300">{t('metricLatency')}</span>
             <span className="text-[11px] font-mono text-emerald-400">Normal</span>
           </div>
 

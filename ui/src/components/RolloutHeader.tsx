@@ -1,27 +1,29 @@
 import React from 'react';
 import { RolloutItem } from '../types';
 import { ArrowRight, Clock, Cpu, Server, CheckCircle2, AlertTriangle, PauseCircle, Flame } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface Props {
   rollout: RolloutItem;
 }
 
 export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
+  const { t } = useI18n();
   const status = rollout.status;
   const phase = status?.phase || 'Pending';
 
   const getPhaseBadge = (p: string) => {
     switch (p) {
       case 'Completed':
-        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"><CheckCircle2 className="w-3.5 h-3.5" /> Completed</span>;
+        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"><CheckCircle2 className="w-3.5 h-3.5" /> {t('statusCompleted')}</span>;
       case 'Observing':
       case 'CanaryRunning':
-        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/30 animate-pulse"><Flame className="w-3.5 h-3.5" /> {p} (Active)</span>;
+        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/30 animate-pulse"><Flame className="w-3.5 h-3.5" /> {p} ({t('statusActive')})</span>;
       case 'Paused':
-        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30"><PauseCircle className="w-3.5 h-3.5" /> Paused</span>;
+        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30"><PauseCircle className="w-3.5 h-3.5" /> {t('statusPaused')}</span>;
       case 'Aborted':
       case 'RollingBack':
-        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30"><AlertTriangle className="w-3.5 h-3.5" /> {p}</span>;
+        return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30"><AlertTriangle className="w-3.5 h-3.5" /> {t('statusDegraded')} ({p})</span>;
       default:
         return <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">{p}</span>;
     }
@@ -36,21 +38,21 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
             {getPhaseBadge(phase)}
           </div>
           <p className="text-xs text-slate-400 flex items-center gap-2">
-            Target Gateway: <span className="text-slate-200 font-mono font-medium">{rollout.spec.gateway.name}</span>
+            {t('targetGateway')}: <span className="text-slate-200 font-mono font-medium">{rollout.spec.gateway.name}</span>
             <span>•</span>
-            Namespace: <span className="text-slate-200 font-mono font-medium">{rollout.spec.targetNamespace || 'envoy-gateway-system'}</span>
+            {t('namespace')}: <span className="text-slate-200 font-mono font-medium">{rollout.spec.targetNamespace || 'envoy-gateway-system'}</span>
           </p>
         </div>
 
         {/* Version Transition Box */}
         <div className="flex items-center gap-3 bg-slate-950/80 px-4 py-2.5 rounded-xl border border-slate-800">
           <div className="text-right">
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Active Version</div>
+            <div className="text-[10px] text-slate-400 uppercase font-semibold">{t('activeVersion')}</div>
             <div className="font-mono text-sm font-bold text-emerald-400">{status?.currentVersion || 'None'}</div>
           </div>
           <ArrowRight className="w-4 h-4 text-slate-500" />
           <div>
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Target Version</div>
+            <div className="text-[10px] text-slate-400 uppercase font-semibold">{t('targetVersion')}</div>
             <div className="font-mono text-sm font-bold text-sky-400">{rollout.spec.version}</div>
           </div>
         </div>
@@ -60,7 +62,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-6">
         <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Rollout Step</span>
+            <span>{t('currentStep')}</span>
             <Server className="w-4 h-4 text-sky-400" />
           </div>
           <div className="text-2xl font-bold text-white font-mono">
@@ -73,7 +75,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
 
         <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Step Remaining Time</span>
+            <span>{t('timeRemaining')}</span>
             <Clock className="w-4 h-4 text-amber-400" />
           </div>
           <div className="text-2xl font-bold text-white font-mono">
@@ -86,7 +88,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
 
         <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800/80">
           <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-            <span>Ephemeral Prometheus</span>
+            <span>{t('ephemeralPrometheus')}</span>
             <Cpu className="w-4 h-4 text-purple-400" />
           </div>
           <div className="text-sm font-semibold text-white font-mono truncate">

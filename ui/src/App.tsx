@@ -6,7 +6,7 @@ import { MetricCharts } from './components/MetricCharts';
 import { ControlPanel } from './components/ControlPanel';
 import { UpgradeModal } from './components/UpgradeModal';
 import { RolloutItem } from './types';
-import { RefreshCw, PlusCircle, AlertCircle } from 'lucide-react';
+import { useI18n } from './i18n';
 
 const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
   metadata: {
@@ -89,6 +89,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
 };
 
 export function App() {
+  const { t } = useI18n();
   const [rollouts, setRollouts] = useState<RolloutItem[]>([SAMPLE_FALLBACK_ROLLOUT]);
   const [selectedRolloutName, setSelectedRolloutName] = useState<string>('eg');
   const [connected, setConnected] = useState<boolean>(false);
@@ -194,13 +195,13 @@ export function App() {
           </>
         ) : (
           <div className="py-20 text-center">
-            <p className="text-slate-400">No Envoy Gateway Rollout resources detected.</p>
+            <p className="text-slate-400">{t('noRollouts')}</p>
           </div>
         )}
       </main>
 
       <footer className="border-t border-slate-900 py-4 text-center text-xs text-slate-500">
-        Envoy Gateway Rollout Controller &bull; envoy-gateway-system
+        {t('footerText')}
       </footer>
     </div>
   );

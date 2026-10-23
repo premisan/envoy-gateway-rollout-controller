@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Play, Pause, FastForward, RotateCcw, Sparkles } from 'lucide-react';
 import { RolloutItem } from '../types';
+import { useI18n } from '../i18n';
 
 interface Props {
   rollout: RolloutItem;
@@ -19,6 +20,7 @@ export const ControlPanel: React.FC<Props> = ({
   onAbort,
   onOpenUpgradeModal,
 }) => {
+  const { t } = useI18n();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [confirmAbort, setConfirmAbort] = useState(false);
 
@@ -39,9 +41,9 @@ export const ControlPanel: React.FC<Props> = ({
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h3 className="font-bold text-white text-base">Operator Manual Controls</h3>
+          <h3 className="font-bold text-white text-base">{t('controlPanelTitle')}</h3>
           <p className="text-xs text-slate-400 mt-0.5">
-            Intervene during canary stages or initiate a zero-downtime version upgrade
+            {t('controlPanelSubtitle')}
           </p>
         </div>
 
@@ -53,7 +55,7 @@ export const ControlPanel: React.FC<Props> = ({
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Sparkles className="w-4 h-4" />
-            Upgrade Envoy Version
+            {t('btnUpgrade')}
           </button>
 
           {/* Pause / Resume */}
@@ -65,7 +67,7 @@ export const ControlPanel: React.FC<Props> = ({
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-lg shadow-emerald-600/20"
               >
                 <Play className="w-4 h-4 fill-current" />
-                Resume Rollout
+                {t('btnResume')}
               </button>
             ) : (
               <button
@@ -74,7 +76,7 @@ export const ControlPanel: React.FC<Props> = ({
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow-lg shadow-amber-600/20"
               >
                 <Pause className="w-4 h-4 fill-current" />
-                Pause Observation
+                {t('btnPause')}
               </button>
             )
           )}
@@ -87,7 +89,7 @@ export const ControlPanel: React.FC<Props> = ({
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 transition-colors"
             >
               <FastForward className="w-4 h-4" />
-              Force Promote Step
+              {t('btnForcePromote')}
             </button>
           )}
 
@@ -95,18 +97,18 @@ export const ControlPanel: React.FC<Props> = ({
           {isRolloutActive && (
             confirmAbort ? (
               <div className="flex items-center gap-2 bg-rose-950/60 p-1 rounded-xl border border-rose-800">
-                <span className="text-[11px] text-rose-300 font-semibold px-2">Confirm?</span>
+                <span className="text-[11px] text-rose-300 font-semibold px-2">{t('confirmAbort')}</span>
                 <button
                   onClick={() => handleAction('abort', onAbort)}
                   className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30"
                 >
-                  Yes, Rollback Now
+                  {t('btnAbort')}
                 </button>
                 <button
                   onClick={() => setConfirmAbort(false)}
                   className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white"
                 >
-                  Cancel
+                  {t('btnCancel')}
                 </button>
               </div>
             ) : (
@@ -115,7 +117,7 @@ export const ControlPanel: React.FC<Props> = ({
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
               >
                 <RotateCcw className="w-4 h-4" />
-                Manual Rollback
+                {t('btnAbort')}
               </button>
             )
           )}
