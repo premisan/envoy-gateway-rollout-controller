@@ -1,0 +1,71 @@
+apiVersion: rollout.envoyproxy.io/v1alpha1
+kind: EnvoyGatewayRollout
+metadata:
+  name: eg-rollout-prod
+  namespace: envoy-gateway-system
+spec:
+  # Target Envoy Gateway release version
+  version: "v1.6.1"
+
+  # Single target namespace replacing multi-namespace dual setups
+  targetNamespace: "envoy-gateway-system"
+
+  # Gateway resource definition
+  gateway:
+    name: "eg-prod"
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+      - name: https
+        protocol: HTTPS
+        port: 443
+        tlsSecretName: "example-tls-cert"
+
+  # DataPlane DaemonSet configuration
+  envoyProxy:
+    nodeSelector:
+      node-role.kubernetes.io/ingress: "true"
+    tolerations:
+      - key: "node-role.kubernetes.io/ingress"
+        operator: "Equal"
+        value: "true"
+        effect: "NoExecute"
+    annotations:
+      gateway.envoyproxy.io/node-group: "envoy-gateway"
+
+  # Progressive node-level canary strategy
+  strategy:
+    steps:
+      - nodes: "1"          # Stage 1: 1 canary node
+        pauseDuration: "3m" # Metric evaluation wait time
+      - nodes: "3"          # Stage 2: 3 canary nodes
+        pauseDuration: "5m"
+      - nodes: "100%"       # Stage 3: All remaining nodes
+        pauseDuration: "5m"
+
+  # Automated health analysis with on-demand temporary Prometheus
+  analysis:
+    ephemeralPrometheus:
+      enabled: true         # Automatically spawns Prometheus during rollout and cleans up when finished
+      scrapeInterval: "5s"
+      retention: "2h"
+    interval: "15s"
+    failureLimit: 3         # Consecutive failures before automatic rollback
+    metrics:
+      - name: http-5xx-rate
+        threshold: 1.0      # Breached if 5xx rate > 1.0%
+        query: |
+          sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5", instance=~"$CANARY_NODES.*"}[1m]))
+          /
+          sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])) * 100
+      - name: connection-errors
+        threshold: 5.0
+        query: |
+          sum(rate(envoy_server_total_connections_error{instance=~"$CANARY_NODES.*"}[1m]))
+
+  # Manual control flags (modifiable from Web UI)
+  control:
+    paused: false
+    abort: false
+    forcePromote: false

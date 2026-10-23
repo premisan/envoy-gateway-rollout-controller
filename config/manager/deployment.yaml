@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy-gateway-rollout-controller
+  namespace: envoy-gateway-system
+  labels:
+    app.kubernetes.io/name: envoy-gateway-rollout-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: envoy-gateway-rollout-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: envoy-gateway-rollout-controller
+    spec:
+      serviceAccountName: envoy-gateway-rollout-controller
+      containers:
+        - name: manager
+          image: premisan0/envoy-gateway-rollout-controller:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /manager
+          args:
+            - --web-bind-address=:8080
+            - --metrics-bind-address=:8081
+            - --health-probe-bind-address=:8082
+          ports:
+            - name: http-ui
+              containerPort: 8080
+            - name: metrics
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi

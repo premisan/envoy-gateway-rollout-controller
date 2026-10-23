@@ -1,0 +1,15 @@
+# Binaries
+/bin/
+/controller
+
+# UI Build & Dependencies
+ui/node_modules/
+ui/dist/
+ui/.vite/
+
+# OS files
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

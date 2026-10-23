@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  # 1. Custom Health Check for EnvoyGatewayRollout
+  resource.customizations.health.rollout.envoyproxy.io_EnvoyGatewayRollout: |
+    hs = {}
+    if obj.status ~= nil then
+      local phase = obj.status.phase
+      local msg = obj.status.message or ""
+      if phase == "Completed" then
+        hs.status = "Healthy"
+        hs.message = "Envoy Gateway rollout completed: " .. msg
+        return hs
+      elseif phase == "Aborted" or phase == "RollingBack" then
+        hs.status = "Degraded"
+        hs.message = "Envoy Gateway rollout degraded: " .. msg
+        return hs
+      elseif phase == "Paused" then
+        hs.status = "Suspended"
+        hs.message = "Envoy Gateway rollout paused: " .. msg
+        return hs
+      else
+        hs.status = "Progressing"
+        local step = obj.status.currentStep or 1
+        local total = obj.status.totalSteps or 1
+        hs.message = string.format("Rollout Step %d/%d in progress: %s", step, total, msg)
+        return hs
+      end
+    end
+    hs.status = "Progressing"
+    hs.message = "Initializing rollout..."
+    return hs
+
+  # 2. Ignore differences on operator manual controls (avoids ArgoCD self-heal reverting UI pause/rollback)
+  resource.customizations.ignoreDifferences.rollout.envoyproxy.io_EnvoyGatewayRollout: |
+    jsonPointers:
+      - /spec/control

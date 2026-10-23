@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-rollout
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/premisan/envoy-gateway-rollout-controller.git'
+    targetRevision: main
+    path: config/samples
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: envoy-gateway-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+  ignoreDifferences:
+    - group: rollout.envoyproxy.io
+      kind: EnvoyGatewayRollout
+      jsonPointers:
+        - /spec/control

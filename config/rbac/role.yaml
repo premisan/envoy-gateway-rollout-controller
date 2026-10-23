@@ -1,0 +1,32 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: envoy-gateway-rollout-controller-role
+rules:
+  # Rollout Controller CRDs
+  - apiGroups: ["rollout.envoyproxy.io"]
+    resources: ["envoygatewayrollouts", "envoygatewayrollouts/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Gateway API & EnvoyProxy
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses", "gateways"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources: ["envoyproxies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Core Resources for Ephemeral Prometheus & Node monitoring
+  - apiGroups: [""]
+    resources: ["namespaces", "services", "configmaps", "pods", "nodes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Apps for Ephemeral Prometheus & Envoy Deployments/DaemonSets
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Coordination
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
