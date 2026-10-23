@@ -53,8 +53,8 @@ Kubernetes 환경에서 **Envoy Gateway의 컨트롤 플레인 및 데이터 플
 │              Kubernetes Ingress LB Worker Nodes                 │
 │                                                                 │
 │  [Node 1: Canary]            [Node 2: Stable]   [Node 3: Stable]│
-│   ├── Envoy v1.6.1 (검증)     └── Envoy v1.6.0   └── Envoy v1.6.0│
-│   └── Envoy v1.6.0 (Admin Drain)                                │
+│   ├── Envoy v1.9.2 (검증)     └── Envoy v1.8.5   └── Envoy v1.8.5│
+│   └── Envoy v1.8.5 (Admin Drain)                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -71,8 +71,8 @@ metadata:
   name: eg-rollout-prod
   namespace: envoy-gateway-system
 spec:
-  # 대상 Envoy Gateway 버전
-  version: "v1.6.1"
+  # 대상 Envoy Gateway 버전 (예: v1.8.5 -> v1.9.2)
+  version: "v1.8.5"
 
   # 단일 타깃 네임스페이스
   targetNamespace: "envoy-gateway-system"
@@ -175,7 +175,7 @@ spec:
   1. **Node Topology View**: 노드별 실시간 상태(Stable, Canary, Draining, Upgraded, RolledBack) 색상 타일 및 커넥션 수/드레인 진행률 바 표시.
   2. **Live Prometheus Metric Analyzer**: 5xx 에러율 게이지(임계치 1.0% 점선 마크), Connection Error, P99 레이턴시 스트리밍.
   3. **Action Controls**:
-     * `[Upgrade Envoy Version]`: 새 버전 입력 후 노드 카나리 시퀀스 시작.
+     * `[Upgrade Envoy Version]`: 공식 릴리즈 목록(Helm OCI 차트)에서 대상 버전(예: `v1.9.2`)을 선택하여 노드 카나리 시퀀스 시작.
      * `[Pause / Resume]`: 메트릭 관측 타이머 일시정지 및 재개.
      * `[Force Promote]`: 관측 시간을 건너뛰고 다음 노드군으로 즉시 확장.
      * `[Manual Rollback]`: 즉시 구버전으로 트래픽을 안전 복귀시키는 즉각 롤백.

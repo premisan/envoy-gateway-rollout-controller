@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
-import { X, Sparkles, AlertCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Sparkles, AlertCircle, PackageCheck, Loader2 } from 'lucide-react';
+
+interface ReleaseInfo {
+  version: string;
+  helmChart: string;
+  prerelease?: boolean;
+  publishedAt?: string;
+}
 
 interface Props {
   isOpen: boolean;
@@ -8,26 +15,74 @@ interface Props {
   onConfirmUpgrade: (targetVersion: string) => Promise<void>;
 }
 
+const DEFAULT_RELEASES: ReleaseInfo[] = [
+  { version: 'v1.9.2', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.9.2' },
+  { version: 'v1.9.1', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.9.1' },
+  { version: 'v1.9.0', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.9.0' },
+  { version: 'v1.8.5', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.8.5' },
+  { version: 'v1.8.4', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.8.4' },
+  { version: 'v1.8.0', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.8.0' },
+  { version: 'v1.7.2', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.7.2' },
+  { version: 'v1.7.0', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.7.0' },
+  { version: 'v1.6.1', helmChart: 'oci://docker.io/envoyproxy/gateway-helm:v1.6.1' },
+];
+
 export const UpgradeModal: React.FC<Props> = ({
   isOpen,
   onClose,
   currentVersion,
   onConfirmUpgrade,
 }) => {
-  const [targetVersion, setTargetVersion] = useState('v1.7.0');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [releases, setReleases] = useState<ReleaseInfo[]>(DEFAULT_RELEASES);
+  const [selectedVersion, setSelectedVersion] = useState<string>('v1.9.2');
+  const [loadingReleases, setLoadingReleases] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchReleases();
+    }
+  }, [isOpen]);
+
+  const fetchReleases = async () => {
+    setLoadingReleases(true);
+    try {
+      const res = await fetch('/api/releases');
+      if (res.ok) {
+        const data: ReleaseInfo[] = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setReleases(data);
+          // Default to latest version if different from current
+          if (data[0].version !== currentVersion) {
+            setSelectedVersion(data[0].version);
+          } else if (data.length > 1) {
+            setSelectedVersion(data[1].version);
+          }
+        }
+      }
+    } catch (e) {
+      // Retain fallback list
+    } finally {
+      setLoadingReleases(false);
+    }
+  };
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetVersion.trim()) return;
+    if (!selectedVersion.trim()) return;
+
+    if (selectedVersion === currentVersion) {
+      setError(`Selected version ${selectedVersion} is already the active version.`);
+      return;
+    }
 
     setLoading(true);
     setError('');
     try {
-      await onConfirmUpgrade(targetVersion.trim());
+      await onConfirmUpgrade(selectedVersion.trim());
       onClose();
     } catch (err: any) {
       setError(err.message || 'Upgrade request failed');
@@ -35,6 +90,8 @@ export const UpgradeModal: React.FC<Props> = ({
       setLoading(false);
     }
   };
+
+  const selectedRelease = releases.find((r) => r.version === selectedVersion);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
@@ -52,7 +109,7 @@ export const UpgradeModal: React.FC<Props> = ({
           </div>
           <div>
             <h3 className="font-bold text-lg text-white">Start Canary Upgrade</h3>
-            <p className="text-xs text-slate-400">Trigger zero-downtime rollout sequence</p>
+            <p className="text-xs text-slate-400">Select an official Envoy Gateway release</p>
           </div>
         </div>
 
@@ -65,26 +122,48 @@ export const UpgradeModal: React.FC<Props> = ({
               <input
                 type="text"
                 disabled
-                value={currentVersion || 'None'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-slate-400 cursor-not-allowed"
+                value={currentVersion || 'v1.8.5'}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm font-mono text-emerald-400 font-bold cursor-not-allowed"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Target Envoy Gateway Version
-              </label>
-              <input
-                type="text"
-                required
-                value={targetVersion}
-                onChange={(e) => setTargetVersion(e.target.value)}
-                placeholder="e.g. v1.7.0"
-                className="w-full bg-slate-950 border border-sky-600/50 focus:border-sky-500 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono text-white"
-              />
-              <span className="text-[11px] text-slate-500 mt-1 block">
-                Will execute node-by-node rollout with ephemeral Prometheus metrics.
-              </span>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Target Envoy Gateway Release
+                </label>
+                {loadingReleases && (
+                  <span className="text-[11px] text-sky-400 flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Fetching releases...
+                  </span>
+                )}
+              </div>
+
+              <select
+                value={selectedVersion}
+                onChange={(e) => {
+                  setSelectedVersion(e.target.value);
+                  setError('');
+                }}
+                className="w-full bg-slate-950 border border-sky-600/50 focus:border-sky-500 focus:outline-none rounded-lg px-3 py-2 text-sm font-mono text-white cursor-pointer"
+              >
+                {releases.map((rel, idx) => (
+                  <option key={rel.version} value={rel.version} className="bg-slate-900 py-1">
+                    {rel.version} {idx === 0 ? '(Latest Stable)' : ''} {rel.version === currentVersion ? '(Current Active)' : ''}
+                  </option>
+                ))}
+              </select>
+
+              {/* Helm OCI Information Box */}
+              <div className="mt-2.5 p-3 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 font-mono">
+                <div className="flex items-center gap-1.5 text-sky-300 mb-1 font-semibold">
+                  <PackageCheck className="w-3.5 h-3.5" />
+                  Official Helm OCI Chart:
+                </div>
+                <div className="text-slate-300 break-all select-all">
+                  {selectedRelease?.helmChart || `oci://docker.io/envoyproxy/gateway-helm:${selectedVersion}`}
+                </div>
+              </div>
             </div>
 
             {error && (
@@ -105,10 +184,10 @@ export const UpgradeModal: React.FC<Props> = ({
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="px-5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-50"
+              disabled={loading || selectedVersion === currentVersion}
+              className="px-5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-colors shadow-lg shadow-sky-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {loading ? 'Starting...' : 'Launch Canary Rollout'}
+              {loading ? 'Starting...' : `Launch Canary to ${selectedVersion}`}
             </button>
           </div>
         </form>

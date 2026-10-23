@@ -5,7 +5,7 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   # Target Envoy Gateway release version
-  version: "v1.6.1"
+  version: "v1.8.5"
 
   # Single target namespace replacing multi-namespace dual setups
   targetNamespace: "envoy-gateway-system"
