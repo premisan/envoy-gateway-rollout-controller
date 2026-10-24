@@ -91,7 +91,7 @@ kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controlle
 
 ## 4. 선언적 명세 (CRD: `EnvoyGatewayRollout`)
 
-단축어: **`egrc`** (`kubectl get egrc -n envoy-gateway-system`)
+단축어: **`egr`**, **`egrollout`** (`kubectl get egr -n envoy-gateway-system`)
 
 ```yaml
 apiVersion: rollout.envoyproxy.io/v1alpha1
@@ -246,7 +246,7 @@ make test
 
 ### 7.2 Docker 이미지
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.12
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.13
 ```
 
 ### 7.3 컴포넌트별 개별 배포 (수동)
@@ -268,6 +268,6 @@ kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
 kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
 
 # 4. 롤아웃 상태 및 로그 확인
-kubectl get egrc -n envoy-gateway-system -w
+kubectl get egr -n envoy-gateway-system -w
 kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

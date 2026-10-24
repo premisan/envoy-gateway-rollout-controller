@@ -91,7 +91,7 @@ Open **`http://localhost:8080`** in your browser to access the real-time node to
 
 ## 4. Declarative Specification (CRD: `EnvoyGatewayRollout`)
 
-Short name: **`egrc`** (`kubectl get egrc -n envoy-gateway-system`)
+Short name: **`egr`**, **`egrollout`** (`kubectl get egr -n envoy-gateway-system`)
 
 ```yaml
 apiVersion: rollout.envoyproxy.io/v1alpha1
@@ -246,7 +246,7 @@ make test
 
 ### 7.2 Docker Image
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.12
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.13
 ```
 
 ### 7.3 Step-by-Step Manual Deployment
@@ -268,6 +268,6 @@ kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
 kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
 
 # 4. Check Status and Logs
-kubectl get egrc -n envoy-gateway-system -w
+kubectl get egr -n envoy-gateway-system -w
 kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

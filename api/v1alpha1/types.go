@@ -7,13 +7,13 @@ import (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=egrc;egr;egrollout
+// +kubebuilder:resource:shortName=egr;egrollout
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Target-Version",type="string",JSONPath=".spec.version"
 // +kubebuilder:printcolumn:name="Current-Step",type="integer",JSONPath=".status.currentStep"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// EnvoyGatewayRollout is the Schema for the Envoy Gateway zero-downtime rollout API.
+// EnvoyGatewayRollout is the Schema for the Envoy Gateway rollout API.
 type EnvoyGatewayRollout struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

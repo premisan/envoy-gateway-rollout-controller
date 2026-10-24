@@ -727,8 +727,8 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 	targetNamespace string,
 ) error {
 	ownerRef := metav1.OwnerReference{
-		APIVersion: rollout.APIVersion,
-		Kind:       rollout.Kind,
+		APIVersion: "rollout.envoyproxy.io/v1alpha1",
+		Kind:       "EnvoyGatewayRollout",
 		Name:       rollout.Name,
 		UID:        rollout.UID,
 	}
@@ -857,7 +857,51 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 	_ = unstructured.SetNestedSlice(gw.Object, listeners, "spec", "listeners")
 	_ = r.Create(ctx, gw)
 
+	// 4. DataPlane DaemonSet: link OwnerReference to EnvoyGatewayRollout for ArgoCD resource tree visibility
+	dsList := &appsv1.DaemonSetList{}
+	if err := r.List(ctx, dsList, client.InNamespace(targetNamespace)); err == nil {
+		for i := range dsList.Items {
+			ds := &dsList.Items[i]
+			if ds.Labels["gateway.envoyproxy.io/owning-gateway-name"] == gwName || ds.Name == "envoy-proxy" {
+				newRefs, changed := appendOwnerReference(ds.OwnerReferences, ownerRef)
+				if changed {
+					ds.OwnerReferences = newRefs
+					_ = r.Update(ctx, ds)
+				}
+			}
+		}
+	}
+
+	// 5. DataPlane Service: link OwnerReference to EnvoyGatewayRollout for ArgoCD resource tree visibility
+	svcList := &corev1.ServiceList{}
+	if err := r.List(ctx, svcList, client.InNamespace(targetNamespace)); err == nil {
+		for i := range svcList.Items {
+			svc := &svcList.Items[i]
+			if svc.Labels["gateway.envoyproxy.io/owning-gateway-name"] == gwName || svc.Name == "envoy-proxy" {
+				newRefs, changed := appendOwnerReference(svc.OwnerReferences, ownerRef)
+				if changed {
+					svc.OwnerReferences = newRefs
+					_ = r.Update(ctx, svc)
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+func appendOwnerReference(existing []metav1.OwnerReference, target metav1.OwnerReference) ([]metav1.OwnerReference, bool) {
+	for i, ref := range existing {
+		if ref.Kind == target.Kind && ref.Name == target.Name {
+			if ref.UID != target.UID || ref.APIVersion != target.APIVersion {
+				existing[i].UID = target.UID
+				existing[i].APIVersion = target.APIVersion
+				return existing, true
+			}
+			return existing, false
+		}
+	}
+	return append(existing, target), true
 }
 
 func parseNodeCount(nodesStr string, totalNodes int) int {
