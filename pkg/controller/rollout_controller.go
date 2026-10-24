@@ -85,6 +85,9 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
+	// Ensure base DaemonSet uses OnDelete strategy so Kubernetes never kills running proxy pods on spec update
+	_ = r.ensureDaemonSetOnDelete(ctx, targetNamespace)
+
 	// 3. Check for manual intervention (Pause / Abort)
 	if rollout.Spec.Control.Abort {
 		logger.Info("Manual abort requested via spec.control.abort")
@@ -518,7 +521,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 
 func (r *EnvoyGatewayRolloutReconciler) handleAbort(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout, reason string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Executing rollout abort and restoring stable state", "reason", reason)
+	logger.Info("Executing zero-downtime rollout abort and restoring stable state", "reason", reason)
 
 	stableVersion := rollout.Status.CurrentVersion
 	if stableVersion == "" {
@@ -539,16 +542,65 @@ func (r *EnvoyGatewayRolloutReconciler) handleAbort(ctx context.Context, rollout
 		logger.Error(err, "Failed to update spec during abort")
 	}
 
-	// 2. Clean up overlapping canary pods immediately!
-	// The stable daemonset pod on the node continues serving with zero downtime.
-	r.deleteCanaryPods(ctx, targetNamespace)
-	_ = r.syncControlPlane(ctx, rollout, targetNamespace, stableVersion)
-	_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, stableVersion)
+	// 2. Ensure base DaemonSet uses OnDelete strategy so existing stable pods are NEVER killed
+	_ = r.ensureDaemonSetOnDelete(ctx, targetNamespace)
 
-	// 3. Update status to Aborted terminal state
+	// 3. Inspect running pods on all target nodes
+	podList := &corev1.PodList{}
+	_ = r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"})
+
+	allNodesHaveReadyStable := true
+	var unreadyNode string
+	for _, node := range rollout.Status.Nodes {
+		hasReadyStable := false
+		for _, pod := range podList.Items {
+			// Find stable pod (not temporary canary) on this node that is fully Ready
+			if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" && isPodReady(&pod) {
+				hasReadyStable = true
+				break
+			}
+		}
+		if !hasReadyStable {
+			allNodesHaveReadyStable = false
+			unreadyNode = node.NodeName
+			break
+		}
+	}
+
+	// If any node lacks a Ready stable pod (e.g. if rollback occurred during/after drain),
+	// DO NOT delete canary pods yet! Keep them serving traffic via EndpointSlice until stable pod recovers.
+	if !allNodesHaveReadyStable {
+		logger.Info("Rollback in progress: waiting for stable daemonset pod to become Ready before terminating canary", "unreadyNode", unreadyNode)
+		rollout.Status.Phase = rolloutv1alpha1.PhaseRollingBack
+		rollout.Status.Message = fmt.Sprintf("Rollback in progress: waiting for stable pod on node %s to become Ready", unreadyNode)
+		rollout.Status.LastUpdateTime = metav1.Now()
+		_ = r.Status().Update(ctx, rollout)
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
+	// 4. All nodes now have a Ready stable pod serving traffic!
+	// Remove custom EndpointSlice first so all incoming traffic shifts back to stable pods.
+	_ = r.ensureCanaryEndpointSlice(ctx, targetNamespace, nil)
+
+	// Gracefully drain and delete overlapping canary pods
+	canaryPodList := &corev1.PodList{}
+	if err := r.List(ctx, canaryPodList, client.InNamespace(targetNamespace), client.MatchingLabels{"rollout.envoyproxy.io/canary": "true"}); err == nil {
+		for _, pod := range canaryPodList.Items {
+			logger.Info("Gracefully draining and removing overlapping canary pod during rollback", "pod", pod.Name, "node", pod.Spec.NodeName)
+			if pod.Status.PodIP != "" {
+				_ = r.AdminClient.DrainListeners(ctx, pod.Status.PodIP, 19001)
+			}
+			_ = r.Delete(ctx, &pod)
+		}
+	}
+
+	// 5. Restore control plane components to stableVersion (without touching data plane daemonset!)
+	_ = r.syncControlPlane(ctx, rollout, targetNamespace, stableVersion)
+
+	// 6. Update status to Aborted terminal state
 	rollout.Status.Phase = rolloutv1alpha1.PhaseAborted
 	rollout.Status.TargetVersion = stableVersion
-	rollout.Status.Message = fmt.Sprintf("Rollout aborted and restored to %s: %s", stableVersion, reason)
+	rollout.Status.Message = fmt.Sprintf("Rollout safely aborted with zero downtime and restored to %s: %s", stableVersion, reason)
 	rollout.Status.StepTimeRemaining = ""
 
 	for i := range rollout.Status.Nodes {
@@ -611,6 +663,9 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 
 	daemonSetSpec := map[string]interface{}{
 		"name": "envoy-proxy",
+		"strategy": map[string]interface{}{
+			"type": "OnDelete",
+		},
 	}
 	if len(rollout.Spec.EnvoyProxy.NodeSelector) > 0 {
 		daemonSetSpec["pod"] = map[string]interface{}{
@@ -627,7 +682,24 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 			},
 		},
 	}, "spec", "provider")
-	_ = r.Create(ctx, envoyProxy)
+
+	existingProxy := &unstructured.Unstructured{}
+	existingProxy.SetGroupVersionKind(envoyProxy.GroupVersionKind())
+	if err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: envoyProxyName}, existingProxy); errors.IsNotFound(err) {
+		_ = r.Create(ctx, envoyProxy)
+	} else if err == nil {
+		_ = unstructured.SetNestedMap(existingProxy.Object, map[string]interface{}{
+			"type": "Kubernetes",
+			"kubernetes": map[string]interface{}{
+				"envoyDaemonSet": daemonSetSpec,
+				"envoyService": map[string]interface{}{
+					"name":        "envoy-proxy",
+					"annotations": stringMapToInterfaceMap(rollout.Spec.EnvoyProxy.Annotations),
+				},
+			},
+		}, "spec", "provider")
+		_ = r.Update(ctx, existingProxy)
+	}
 
 	// 3. Gateway Resource
 	gwName := rollout.Spec.Gateway.Name
@@ -770,10 +842,7 @@ func (r *EnvoyGatewayRolloutReconciler) syncDataPlaneDaemonSet(
 	if err == nil {
 		updated := false
 		targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
-		targetEnvoyImage := "docker.io/envoyproxy/envoy:distroless-v1.39.0"
-		if strings.HasPrefix(targetVersion, "v1.2") {
-			targetEnvoyImage = "docker.io/envoyproxy/envoy:distroless-v1.32.3"
-		}
+		targetEnvoyImage := resolveEnvoyImageForVersion(targetVersion)
 
 		for i := range ds.Spec.Template.Spec.Containers {
 			c := &ds.Spec.Template.Spec.Containers[i]
@@ -824,10 +893,7 @@ func (r *EnvoyGatewayRolloutReconciler) ensureCanaryPod(
 	}
 
 	targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
-	targetEnvoyImage := "docker.io/envoyproxy/envoy:distroless-v1.39.0"
-	if strings.HasPrefix(targetVersion, "v1.2") {
-		targetEnvoyImage = "docker.io/envoyproxy/envoy:distroless-v1.32.3"
-	}
+	targetEnvoyImage := resolveEnvoyImageForVersion(targetVersion)
 
 	podSpec := *ds.Spec.Template.Spec.DeepCopy()
 	podSpec.NodeName = nodeName // Explicitly schedule on target canary node
@@ -1020,4 +1086,40 @@ func imageEquals(img1, img2 string) bool {
 	clean1 := strings.TrimPrefix(strings.TrimPrefix(img1, "docker.io/"), "library/")
 	clean2 := strings.TrimPrefix(strings.TrimPrefix(img2, "docker.io/"), "library/")
 	return clean1 == clean2
+}
+
+// ensureDaemonSetOnDelete guarantees that the envoy-proxy DaemonSet uses the OnDelete update strategy.
+// This prevents Kubernetes daemonset-controller from automatically killing healthy pods during spec changes.
+func (r *EnvoyGatewayRolloutReconciler) ensureDaemonSetOnDelete(ctx context.Context, targetNamespace string) error {
+	ds := &appsv1.DaemonSet{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, ds)
+	if err != nil {
+		return err
+	}
+	if ds.Spec.UpdateStrategy.Type != appsv1.OnDeleteDaemonSetStrategyType {
+		ds.Spec.UpdateStrategy = appsv1.DaemonSetUpdateStrategy{
+			Type: appsv1.OnDeleteDaemonSetStrategyType,
+		}
+		return r.Update(ctx, ds)
+	}
+	return nil
+}
+
+// resolveEnvoyImageForVersion determines the corresponding official Envoy proxy container image
+// based on the Envoy Gateway release version.
+func resolveEnvoyImageForVersion(gatewayVersion string) string {
+	cleanVer := strings.TrimPrefix(gatewayVersion, "v")
+	if strings.HasPrefix(cleanVer, "1.9.1") {
+		return "docker.io/envoyproxy/envoy:distroless-v1.39.1"
+	}
+	if strings.HasPrefix(cleanVer, "1.9") {
+		return "docker.io/envoyproxy/envoy:distroless-v1.39.0"
+	}
+	if strings.HasPrefix(cleanVer, "1.8") {
+		return "docker.io/envoyproxy/envoy:distroless-v1.38.4"
+	}
+	if strings.HasPrefix(cleanVer, "1.2") {
+		return "docker.io/envoyproxy/envoy:distroless-v1.32.3"
+	}
+	return "docker.io/envoyproxy/envoy:distroless-v1.39.0"
 }

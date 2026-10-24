@@ -246,7 +246,7 @@ make test
 ### 7.2 Docker Image
 Published official container image:
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.8
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.9
 ```
 
 ### 7.3 Step-by-Step Manual Deployment (Alternative to Single-Command)
@@ -265,7 +265,7 @@ kubectl apply -f config/rbac/role_binding.yaml
 ```
 
 #### Step 2: Deploy Controller Manager & Unified Service
-Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.8` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
+Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.9` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
 ```bash
 # Deploy Controller Manager
 kubectl apply -f config/manager/deployment.yaml

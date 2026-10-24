@@ -245,7 +245,7 @@ make test
 
 ### 7.2 Docker 컨테이너 이미지 빌드
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.8
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.9
 ```
 
 ### 7.3 단계별 수동 배포 가이드 (단일 커맨드 대신 개별 매니페스트 확인 시)
@@ -264,7 +264,7 @@ kubectl apply -f config/rbac/role_binding.yaml
 ```
 
 #### 2단계: 컨트롤러 매니저 및 통합 Service 배포
-`helm`, `kubectl`, React 웹 UI가 내장된 공식 이미지(`premisan0/envoy-gateway-rollout-controller:v1.0.8`) 기반의 Deployment와 단일 Service(`envoy-gateway-rollout-controller`)를 배포합니다.
+`helm`, `kubectl`, React 웹 UI가 내장된 공식 이미지(`premisan0/envoy-gateway-rollout-controller:v1.0.9`) 기반의 Deployment와 단일 Service(`envoy-gateway-rollout-controller`)를 배포합니다.
 ```bash
 # 컨트롤러 Deployment 배포
 kubectl apply -f config/manager/deployment.yaml

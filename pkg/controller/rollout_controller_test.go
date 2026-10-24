@@ -76,3 +76,22 @@ func TestSanitizeResourceName(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveEnvoyImageForVersion(t *testing.T) {
+	cases := []struct {
+		gatewayVersion string
+		expectedEnvoy  string
+	}{
+		{"v1.9.1", "docker.io/envoyproxy/envoy:distroless-v1.39.1"},
+		{"v1.9.0", "docker.io/envoyproxy/envoy:distroless-v1.39.0"},
+		{"v1.8.5", "docker.io/envoyproxy/envoy:distroless-v1.38.4"},
+		{"v1.2.3", "docker.io/envoyproxy/envoy:distroless-v1.32.3"},
+	}
+
+	for _, c := range cases {
+		got := resolveEnvoyImageForVersion(c.gatewayVersion)
+		if got != c.expectedEnvoy {
+			t.Errorf("resolveEnvoyImageForVersion(%q) = %q, expected %q", c.gatewayVersion, got, c.expectedEnvoy)
+		}
+	}
+}
