@@ -18,7 +18,7 @@ spec:
       serviceAccountName: envoy-gateway-rollout-controller
       containers:
         - name: manager
-          image: premisan0/envoy-gateway-rollout-controller:v1.0.15
+          image: premisan0/envoy-gateway-rollout-controller:v1.0.16
           imagePullPolicy: IfNotPresent
           env:
             - name: HOME

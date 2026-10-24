@@ -19,6 +19,9 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
 
   const displayTimeRemaining = useCountdownTimer(status?.stepTimeRemaining, isObserving);
 
+  const isFinalStep = currentStep >= totalSteps;
+  const isFinalDraining = isFinalStep && phase === 'Draining';
+
   const getStageState = (stageIndex: number): 'completed' | 'active' | 'pending' | 'aborted' => {
     if (phase === 'Aborted' || phase === 'RollingBack') {
       return stageIndex === 3 ? 'aborted' : stageIndex < 3 ? 'completed' : 'pending';
@@ -30,23 +33,40 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
     if (stageIndex === 1) {
       return phase === 'Pending' ? 'active' : 'completed';
     }
+
     if (stageIndex === 2) {
-      if (phase === 'Deploying' || phase === 'CanaryRunning') return 'active';
-      if (phase === 'Observing' || phase === 'Draining') return 'completed';
-      return 'pending';
+      if (currentStep === 1 && (phase === 'Deploying' || phase === 'CanaryRunning')) {
+        return 'active';
+      }
+      if (phase === 'Pending') {
+        return 'pending';
+      }
+      return 'completed';
     }
+
     if (stageIndex === 3) {
-      if (phase === 'Observing') return 'active';
-      if (phase === 'Draining') return 'completed';
-      return 'pending';
+      if (phase === 'Pending' || (currentStep === 1 && (phase === 'Deploying' || phase === 'CanaryRunning'))) {
+        return 'pending';
+      }
+      if (isFinalDraining || phase === 'Completed') {
+        return 'completed';
+      }
+      // During active observation, or when transitioning between intermediate steps (currentStep < totalSteps)
+      return 'active';
     }
+
     if (stageIndex === 4) {
-      if (phase === 'Draining') return 'active';
+      if (isFinalDraining) {
+        return 'active';
+      }
+      if (phase === 'Completed') {
+        return 'completed';
+      }
       return 'pending';
     }
+
     if (stageIndex === 5) {
-      if (phase === 'Completed') return 'completed';
-      return 'pending';
+      return phase === 'Completed' ? 'completed' : 'pending';
     }
 
     return 'pending';
