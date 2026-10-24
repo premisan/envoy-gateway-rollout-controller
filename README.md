@@ -246,7 +246,7 @@ make test
 
 ### 7.2 Docker Image
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.13
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.14
 ```
 
 ### 7.3 Step-by-Step Manual Deployment

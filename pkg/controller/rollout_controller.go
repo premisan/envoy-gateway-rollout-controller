@@ -559,6 +559,12 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		targetVersion = rollout.Spec.Version
 	}
 
+	// 1. If concluding the final step, ensure base DaemonSet template is synced to targetVersion first,
+	// so that when old pods are deleted, Kubernetes automatically schedules the new version pods!
+	if rollout.Status.CurrentStep >= rollout.Status.TotalSteps {
+		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, targetVersion)
+	}
+
 	// Trigger Envoy Admin API listener drain on OLD stable instances on canary nodes.
 	// Since the overlapping canary pod is already Ready and handling traffic on the node,
 	// new connections seamlessly shift to the canary pod without dropping a single packet.
@@ -573,7 +579,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 
 			for _, pod := range podList.Items {
 				// Target older stable pod (not the overlapping canary pod)
-				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" {
+				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" && pod.DeletionTimestamp == nil {
 					logger.Info("Draining older stable envoy-proxy pod on canary node", "node", node.NodeName, "pod", pod.Name, "ip", pod.Status.PodIP)
 					if pod.Status.PodIP != "" {
 						_ = r.AdminClient.DrainListeners(ctx, pod.Status.PodIP, 19001)
@@ -592,8 +598,41 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCanaryRunning
 		rollout.Status.Message = fmt.Sprintf("Advancing to Step %d/%d", rollout.Status.CurrentStep, rollout.Status.TotalSteps)
 	} else {
-		// All steps completed!
+		// All steps reaching conclusion: verify updated base DaemonSet pods are 100% Ready before terminating canary!
 		completedVer := targetVersion
+		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, completedVer)
+
+		freshPodList := &corev1.PodList{}
+		_ = r.List(ctx, freshPodList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"})
+
+		allNodesHaveReadyUpdatedPod := true
+		var unreadyNodeName string
+		for _, node := range rollout.Status.Nodes {
+			hasReadyUpdated := false
+			for _, pod := range freshPodList.Items {
+				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" && isPodReady(&pod) && pod.DeletionTimestamp == nil {
+					hasReadyUpdated = true
+					break
+				}
+			}
+			if !hasReadyUpdated {
+				allNodesHaveReadyUpdatedPod = false
+				unreadyNodeName = node.NodeName
+				break
+			}
+		}
+
+		// If new base DaemonSet pod is still starting or pulling image, DO NOT terminate canary!
+		if !allNodesHaveReadyUpdatedPod {
+			logger.Info("Waiting for updated envoy-proxy pod to become Ready before completing rollout", "unreadyNode", unreadyNodeName)
+			rollout.Status.Phase = rolloutv1alpha1.PhaseDraining
+			rollout.Status.Message = fmt.Sprintf("Waiting for updated envoy-proxy pod on node %s to become Ready before completing rollout", unreadyNodeName)
+			rollout.Status.LastUpdateTime = metav1.Now()
+			_ = r.Status().Update(ctx, rollout)
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+
+		// All updated base pods are confirmed Ready! Safe to complete and remove canary pods.
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
 		rollout.Status.CurrentVersion = completedVer
 		rollout.Status.StepTimeRemaining = ""
@@ -604,9 +643,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 			rollout.Status.Nodes[i].CanaryVersion = ""
 			rollout.Status.Nodes[i].DrainProgress = 100
 		}
-		// Synchronize the base DaemonSet to completedVer
-		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, completedVer)
-		// Clean up temporary overlapping canary pods
+		// Clean up temporary overlapping canary pods (only after updated base pods are confirmed Ready!)
 		r.deleteCanaryPods(ctx, targetNamespace)
 		// Clean up temporary Prometheus
 		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
