@@ -27,6 +27,7 @@ export const ControlPanel: React.FC<Props> = ({
   const phase = rollout.status?.phase || 'Pending';
   const isPaused = phase === 'Paused' || rollout.spec.control?.paused;
   const isRolloutActive = phase === 'Observing' || phase === 'CanaryRunning' || phase === 'Deploying' || isPaused;
+  const isObserving = phase === 'Observing' && !isPaused;
   const currentStep = rollout.status?.currentStep || 1;
   const totalSteps = rollout.status?.totalSteps || rollout.spec.strategy.steps?.length || 3;
   const isLastStep = currentStep >= totalSteps;
@@ -83,9 +84,15 @@ export const ControlPanel: React.FC<Props> = ({
           {isRolloutActive && !isPaused && (
             <button
               onClick={() => handleAction('promote', onForcePromote)}
-              disabled={loadingAction !== null}
-              title={isLastStep ? t('btnCompleteTooltip') : t('btnPromoteTooltip')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-colors shadow-sm"
+              disabled={loadingAction !== null || !isObserving}
+              title={
+                !isObserving
+                  ? t('btnPromoteDisabledTooltip')
+                  : isLastStep
+                  ? t('btnCompleteTooltip')
+                  : t('btnPromoteTooltip')
+              }
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-100"
             >
               <FastForward className="w-3.5 h-3.5 text-sky-600" />
               {isLastStep ? t('btnCompleteRollout') : t('btnPromoteStep')}

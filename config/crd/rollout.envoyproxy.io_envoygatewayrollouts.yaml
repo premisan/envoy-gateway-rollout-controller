@@ -123,10 +123,14 @@ spec:
                         type: object
                         required:
                           - nodes
-                          - pauseDuration
                         properties:
                           nodes:
                             type: string
+                          pause:
+                            type: object
+                            properties:
+                              duration:
+                                type: string
                           pauseDuration:
                             type: string
                 analysis:

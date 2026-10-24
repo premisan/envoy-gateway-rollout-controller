@@ -132,15 +132,17 @@ spec:
     annotations:
       gateway.envoyproxy.io/node-group: "envoy-gateway"
 
-  # Progressive node-level canary strategy
+  # Progressive node-level canary strategy (Argo Rollouts style pause support)
   strategy:
     steps:
       - nodes: "1"          # Step 1: 1 canary node
-        pauseDuration: "3m" # Metric observation duration
+        pause: {}           # Indefinite pause until manually promoted (or pause: {duration: "3m"})
       - nodes: "3"          # Step 2: 3 canary nodes
-        pauseDuration: "5m"
+        pause:
+          duration: "5m"    # Timed observation pause
       - nodes: "100%"       # Step 3: Remaining nodes
-        pauseDuration: "5m"
+        pause:
+          duration: "5m"
 
   # Automated health evaluation with temporary Prometheus
   analysis:
@@ -246,7 +248,7 @@ make test
 
 ### 7.2 Docker Image
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.14
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.15
 ```
 
 ### 7.3 Step-by-Step Manual Deployment

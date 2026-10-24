@@ -34,6 +34,12 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
         scrapeInterval: '5s',
       },
       failureLimit: 3,
+      metrics: [
+        { name: 'http-5xx-rate', threshold: 1.0, query: '' },
+        { name: 'http-4xx-rate', threshold: 5.0, query: '' },
+        { name: 'connection-errors', threshold: 5.0, query: '' },
+        { name: 'p99-latency', threshold: 100.0, query: '' },
+      ],
     },
     control: {
       paused: false,
@@ -188,6 +194,7 @@ export function App() {
               metricsSnapshot={selectedRollout.status?.lastMetricSnapshot}
               failureLimit={selectedRollout.spec.analysis?.failureLimit}
               consecutiveFailures={selectedRollout.status?.consecutiveFailures}
+              definedMetrics={selectedRollout.spec.analysis?.metrics}
             />
 
             <UpgradeModal

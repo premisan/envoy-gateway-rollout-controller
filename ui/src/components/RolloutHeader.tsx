@@ -14,6 +14,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
   const phase = status?.phase || 'Pending';
   const isPaused = phase === 'Paused' || rollout.spec.control?.paused;
   const isObserving = phase === 'Observing' && !isPaused;
+  const isManualPause = status?.stepTimeRemaining === 'Manual' || status?.stepTimeRemaining === 'manual';
 
   const displayTimeRemaining = useCountdownTimer(status?.stepTimeRemaining, isObserving);
 
@@ -81,13 +82,21 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
         <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200/80">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
             <span>{t('timeRemaining')}</span>
-            <Clock className={`w-4 h-4 ${phase === 'Completed' ? 'text-emerald-500' : 'text-amber-500'}`} />
+            <Clock className={`w-4 h-4 ${phase === 'Completed' ? 'text-emerald-500' : isManualPause ? 'text-purple-600' : 'text-amber-500'}`} />
           </div>
-          <div className="text-xl font-bold text-slate-900 font-mono">
-            {phase === 'Completed' ? '0s' : displayTimeRemaining}
+          <div className="text-xl font-bold font-mono">
+            {phase === 'Completed' ? (
+              <span className="text-slate-900">0s</span>
+            ) : isManualPause ? (
+              <span className="text-sm font-bold text-purple-700">
+                {t('manualPause')}
+              </span>
+            ) : (
+              <span className="text-slate-900">{displayTimeRemaining}</span>
+            )}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            {phase === 'Completed' ? t('statusCompleted') : isObserving ? 'Timer' : 'Standby'}
+            {phase === 'Completed' ? t('statusCompleted') : isManualPause ? t('manualGate') : isObserving ? 'Timer' : 'Standby'}
           </div>
         </div>
 

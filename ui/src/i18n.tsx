@@ -20,6 +20,7 @@ export const translations = {
     btnCompleteRollout: 'Complete Rollout (Skip Pause)',
     btnPromoteTooltip: 'Skip current step pause duration and advance immediately',
     btnCompleteTooltip: 'Skip final step pause duration and complete rollout immediately',
+    btnPromoteDisabledTooltip: 'Can only promote step during Metrics Guardrail (Observing) phase',
     btnAbort: 'Rollback',
     confirmAbort: 'Confirm Rollback?',
 
@@ -28,6 +29,8 @@ export const translations = {
     targetVersion: 'Target Version',
     currentStep: 'Current Step',
     timeRemaining: 'Remaining Time',
+    manualPause: 'Manual Promotion Required',
+    manualGate: 'Manual Gate',
     canaryProgress: 'Canary Ratio',
     ephemeralPrometheus: 'Metrics Scraper',
     statusActive: 'Active',
@@ -107,6 +110,7 @@ export const translations = {
     btnCompleteRollout: '최종 완료 (대기 건너뛰기)',
     btnPromoteTooltip: '현재 단계의 관찰 대기 시간을 건너뛰고 다음 단계로 즉시 승급합니다',
     btnCompleteTooltip: '마지막 단계의 관찰 대기 시간을 건너뛰고 롤아웃을 즉시 완료합니다',
+    btnPromoteDisabledTooltip: '메트릭 가드레일(관찰 대기) 단계에서만 승급할 수 있습니다',
     btnAbort: '롤백',
     confirmAbort: '롤백하시겠습니까?',
 
@@ -115,6 +119,8 @@ export const translations = {
     targetVersion: '목표 버전',
     currentStep: '현재 단계',
     timeRemaining: '잔여 시간',
+    manualPause: '수동 승급 대기',
+    manualGate: '수동 게이트',
     canaryProgress: '카나리 비율',
     ephemeralPrometheus: '메트릭 수집기',
     statusActive: '진행 중',

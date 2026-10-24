@@ -9,6 +9,14 @@ export interface NodeStatus {
   errorCount5xx: number;
 }
 
+export interface RolloutStep {
+  nodes: string;
+  pause?: {
+    duration?: string;
+  };
+  pauseDuration?: string;
+}
+
 export interface MetricRule {
   name: string;
   threshold: number;
@@ -28,10 +36,7 @@ export interface RolloutItem {
       name: string;
     };
     strategy: {
-      steps: Array<{
-        nodes: string;
-        pauseDuration: string;
-      }>;
+      steps: RolloutStep[];
     };
     analysis: {
       ephemeralPrometheus?: {

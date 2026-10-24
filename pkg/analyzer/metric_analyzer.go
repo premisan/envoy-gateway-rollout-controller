@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -165,6 +166,9 @@ func (a *MetricAnalyzer) queryPrometheus(ctx context.Context, promURL, query str
 	floatVal, err := strconv.ParseFloat(valStr, 64)
 	if err != nil {
 		return 0.0, fmt.Errorf("failed to parse metric float value: %w", err)
+	}
+	if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
+		return 0.0, nil
 	}
 
 	return floatVal, nil

@@ -75,13 +75,26 @@ type RolloutStrategy struct {
 	Steps []RolloutStep `json:"steps"`
 }
 
+// RolloutPause defines pause behavior following Argo Rollouts convention.
+// If duration is omitted (e.g. pause: {}), the rollout pauses indefinitely until manually promoted.
+type RolloutPause struct {
+	// Duration is the metric observation wait time (e.g. "3m", "5m").
+	// If omitted or empty, rollout pauses indefinitely until manually promoted.
+	Duration string `json:"duration,omitempty"`
+}
+
 // RolloutStep defines a single stage in the rollout process
 type RolloutStep struct {
 	// Nodes can be a count (e.g. "1", "3") or percentage (e.g. "50%", "100%")
 	Nodes string `json:"nodes"`
 
-	// PauseDuration is the metric observation wait time (e.g. "3m", "5m")
-	PauseDuration string `json:"pauseDuration"`
+	// Pause defines pause behavior (Argo Rollouts convention).
+	// If pause is specified without duration (pause: {}), the rollout pauses indefinitely until manually promoted.
+	Pause *RolloutPause `json:"pause,omitempty"`
+
+	// PauseDuration is maintained for backward compatibility (e.g. "3m", "5m").
+	// Deprecated: use Pause instead.
+	PauseDuration string `json:"pauseDuration,omitempty"`
 }
 
 // AnalysisConfig configures Prometheus metrics and ephemeral instance provisioning

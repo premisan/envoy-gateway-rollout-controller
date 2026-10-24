@@ -36,15 +36,17 @@ spec:
     annotations:
       gateway.envoyproxy.io/node-group: "envoy-gateway"
 
-  # Progressive node-level canary strategy
+  # Progressive node-level canary strategy (Argo Rollouts style pause support)
   strategy:
     steps:
       - nodes: "1"          # Stage 1: 1 canary node
-        pauseDuration: "3m" # Metric evaluation wait time
+        pause: {}           # Indefinite pause until manually promoted (Argo Rollouts style)
       - nodes: "3"          # Stage 2: 3 canary nodes
-        pauseDuration: "5m"
+        pause:
+          duration: "5m"    # Timed observation pause
       - nodes: "100%"       # Stage 3: All remaining nodes
-        pauseDuration: "5m"
+        pause:
+          duration: "5m"
 
   # Automated health analysis with on-demand temporary Prometheus
   analysis:
@@ -82,6 +84,14 @@ spec:
         threshold: 5.0
         query: |
           sum(rate(envoy_server_total_connections_error{instance=~"$CANARY_NODES.*"}[1m]))
+      - name: p99-latency
+        threshold: 100.0
+        query: |
+          (
+            histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket{instance=~"$CANARY_NODES.*"}[1m])) by (le))
+            or
+            histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket[1m])) by (le))
+          )
 
   # Manual control flags (modifiable from Web UI)
   control:

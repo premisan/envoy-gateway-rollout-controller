@@ -121,8 +121,8 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
               <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px] font-mono text-slate-400">
                 <span>0{stage.idx}</span>
                 {state === 'active' && status?.stepTimeRemaining && (
-                  <span className="text-amber-600 font-bold flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> {displayTimeRemaining}
+                  <span className={`${status.stepTimeRemaining === 'Manual' ? 'text-purple-600' : 'text-amber-600'} font-bold flex items-center gap-1`}>
+                    <Clock className="w-3 h-3" /> {status.stepTimeRemaining === 'Manual' ? t('manualGate') : displayTimeRemaining}
                   </span>
                 )}
               </div>

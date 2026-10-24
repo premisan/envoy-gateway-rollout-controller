@@ -48,8 +48,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/stream", s.handleSSE)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"version": "v1.0.14",
-			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.14",
+			"version": "v1.0.15",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.15",
 		})
 	})
 
@@ -223,11 +223,17 @@ func (s *Server) handleRolloutActions(w http.ResponseWriter, r *http.Request) {
 			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
 				return err
 			}
+			if current.Status.Phase != rolloutv1alpha1.PhaseObserving {
+				return fmt.Errorf("force promote is only allowed during %s phase, current phase is %s", rolloutv1alpha1.PhaseObserving, current.Status.Phase)
+			}
+			if current.Spec.Control.Paused {
+				return fmt.Errorf("cannot promote step while rollout is paused")
+			}
 			current.Spec.Control.ForcePromote = true
 			return s.client.Update(ctx, current)
 		})
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to force promote: %v", err), http.StatusInternalServerError)
+			http.Error(w, fmt.Sprintf("Failed to force promote: %v", err), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Force promote triggered"})

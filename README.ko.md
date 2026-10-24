@@ -132,15 +132,17 @@ spec:
     annotations:
       gateway.envoyproxy.io/node-group: "envoy-gateway"
 
-  # 노드 단위 단계별 카나리 전략
+  # 노드 단위 단계별 카나리 전략 (Argo Rollouts 스타일 pause 지원)
   strategy:
     steps:
-      - nodes: "1"          # 1단계: 1개 노드 카나리
-        pauseDuration: "3m" # 관측 대기 시간
-      - nodes: "3"          # 2단계: 3개 노드 카나리
-        pauseDuration: "5m"
+      - nodes: "1"          # 1단계: 1개 노드 카나리 배포
+        pause: {}           # 수동 승급 전까지 영구 대기 (pause: {} 또는 pauseDuration: "3m" 시간 지정 대기)
+      - nodes: "3"          # 2단계: 3개 노드 카나리 배포
+        pause:
+          duration: "5m"    # 5분 관측 후 자동 진행
       - nodes: "100%"       # 3단계: 나머지 전체 노드 적용
-        pauseDuration: "5m"
+        pause:
+          duration: "5m"
 
   # 메트릭 분석 및 자동 롤백 기준
   analysis:
@@ -246,7 +248,7 @@ make test
 
 ### 7.2 Docker 이미지
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.14
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.15
 ```
 
 ### 7.3 컴포넌트별 개별 배포 (수동)

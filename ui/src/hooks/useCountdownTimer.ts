@@ -48,6 +48,10 @@ export function useCountdownTimer(rawRemaining?: string, isActive = true): strin
     return () => clearInterval(interval);
   }, [isActive, seconds > 0]);
 
+  if (rawRemaining === 'Manual') {
+    return 'Manual';
+  }
+
   if (!isActive || !rawRemaining || rawRemaining === '0s') {
     return '0s';
   }

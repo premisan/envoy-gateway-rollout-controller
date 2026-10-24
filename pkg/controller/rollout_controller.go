@@ -446,17 +446,42 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 		r.StepStartTimes[key] = startTime
 	}
 
-	pauseDuration, _ := time.ParseDuration(step.PauseDuration)
-	if pauseDuration == 0 {
+	// Determine pause behavior (Argo Rollouts convention: pause: {} means indefinite pause)
+	isManualPause := false
+	var pauseDuration time.Duration
+
+	if step.Pause != nil {
+		if step.Pause.Duration == "" {
+			// Argo Rollouts style: pause: {} -> Indefinite pause until manual promotion
+			isManualPause = true
+		} else {
+			pauseDuration, _ = time.ParseDuration(step.Pause.Duration)
+			if pauseDuration <= 0 {
+				isManualPause = true
+			}
+		}
+	} else if step.PauseDuration != "" {
+		if strings.EqualFold(step.PauseDuration, "manual") || strings.EqualFold(step.PauseDuration, "infinite") {
+			isManualPause = true
+		} else {
+			pauseDuration, _ = time.ParseDuration(step.PauseDuration)
+		}
+	} else {
+		// Default to 3 minutes if neither pause nor pauseDuration is specified
 		pauseDuration = 3 * time.Minute
 	}
 
-	elapsed := time.Since(startTime)
-	remaining := pauseDuration - elapsed
-	if remaining < 0 {
-		remaining = 0
+	var remaining time.Duration
+	if isManualPause {
+		rollout.Status.StepTimeRemaining = "Manual"
+	} else {
+		elapsed := time.Since(startTime)
+		remaining = pauseDuration - elapsed
+		if remaining < 0 {
+			remaining = 0
+		}
+		rollout.Status.StepTimeRemaining = remaining.Round(time.Second).String()
 	}
-	rollout.Status.StepTimeRemaining = remaining.Round(time.Second).String()
 
 	// Metric Evaluation
 	promURL := rollout.Status.EphemeralPrometheusURL
@@ -503,6 +528,16 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 				Threshold: 5.0,
 				Query:     `(sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="4"}[1m]))) / clamp_min(sum(rate(envoy_http_downstream_rq_xx[1m])) or sum(rate(envoy_cluster_upstream_rq_xx[1m])), 0.001) * 100`,
 			},
+			{
+				Name:      "connection-errors",
+				Threshold: 5.0,
+				Query:     `sum(rate(envoy_server_total_connections_error[1m]))`,
+			},
+			{
+				Name:      "p99-latency",
+				Threshold: 100.0,
+				Query:     `histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket[1m])) by (le))`,
+			},
 		}
 	}
 
@@ -527,7 +562,14 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 	}
 
 	// Check if step observation time passed or manual ForcePromote requested
-	if remaining == 0 || rollout.Spec.Control.ForcePromote {
+	shouldAdvance := false
+	if rollout.Spec.Control.ForcePromote {
+		shouldAdvance = true
+	} else if !isManualPause && remaining == 0 {
+		shouldAdvance = true
+	}
+
+	if shouldAdvance {
 		if rollout.Spec.Control.ForcePromote {
 			rollout.Spec.Control.ForcePromote = false
 			_ = r.Update(ctx, rollout)
@@ -536,6 +578,14 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 		rollout.Status.Message = fmt.Sprintf("Step %d observation passed. Draining old listeners on canary nodes.", rollout.Status.CurrentStep)
 		_ = r.Status().Update(ctx, rollout)
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if isManualPause {
+		totalSteps := rollout.Status.TotalSteps
+		if totalSteps == 0 {
+			totalSteps = len(rollout.Spec.Strategy.Steps)
+		}
+		rollout.Status.Message = fmt.Sprintf("Observing Step %d/%d (Manual promotion required). Prometheus metrics within safe threshold.", rollout.Status.CurrentStep, totalSteps)
 	}
 
 	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)

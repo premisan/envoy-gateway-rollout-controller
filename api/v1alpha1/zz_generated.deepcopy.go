@@ -102,8 +102,41 @@ func (in *RolloutStrategy) DeepCopyInto(out *RolloutStrategy) {
 	if in.Steps != nil {
 		in, out := &in.Steps, &out.Steps
 		*out = make([]RolloutStep, len(*in))
-		copy(*out, *in)
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
+}
+
+func (in *RolloutPause) DeepCopyInto(out *RolloutPause) {
+	*out = *in
+}
+
+func (in *RolloutPause) DeepCopy() *RolloutPause {
+	if in == nil {
+		return nil
+	}
+	out := new(RolloutPause)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *RolloutStep) DeepCopyInto(out *RolloutStep) {
+	*out = *in
+	if in.Pause != nil {
+		in, out := &in.Pause, &out.Pause
+		*out = new(RolloutPause)
+		**out = **in
+	}
+}
+
+func (in *RolloutStep) DeepCopy() *RolloutStep {
+	if in == nil {
+		return nil
+	}
+	out := new(RolloutStep)
+	in.DeepCopyInto(out)
+	return out
 }
 
 func (in *AnalysisConfig) DeepCopyInto(out *AnalysisConfig) {

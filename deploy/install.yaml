@@ -131,10 +131,14 @@ spec:
                         type: object
                         required:
                           - nodes
-                          - pauseDuration
                         properties:
                           nodes:
                             type: string
+                          pause:
+                            type: object
+                            properties:
+                              duration:
+                                type: string
                           pauseDuration:
                             type: string
                 analysis:
@@ -336,7 +340,7 @@ spec:
       serviceAccountName: envoy-gateway-rollout-controller
       containers:
         - name: manager
-          image: premisan0/envoy-gateway-rollout-controller:v1.0.14
+          image: premisan0/envoy-gateway-rollout-controller:v1.0.15
           imagePullPolicy: IfNotPresent
           env:
             - name: HOME
