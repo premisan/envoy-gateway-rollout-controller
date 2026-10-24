@@ -1,4 +1,4 @@
-# Envoy Gateway Zero-Downtime Rollout Controller (EGRC)
+# Envoy Gateway Rollout Controller (EGRC)
 
 **English** | [한국어 (Korean)](./README.ko.md)
 
@@ -7,23 +7,24 @@
 [![ArgoCD Ready](https://img.shields.io/badge/ArgoCD-GitOps%20Compatible-orange?logo=argo)](https://argoproj.github.io/cd/)
 [![Docker Image](https://img.shields.io/badge/Docker%20Hub-premisan0%2Fenvoy--gateway--rollout--controller-blue?logo=docker)](https://hub.docker.com/r/premisan0/envoy-gateway-rollout-controller)
 
-**EGRC (Envoy Gateway Rollout Controller)** is a dedicated Kubernetes canary rollout operator and real-time dashboard platform designed to achieve **zero downtime** during Envoy Gateway control plane and data plane (DaemonSet) upgrades.
+**EGRC (Envoy Gateway Rollout Controller)** is a Kubernetes operator and real-time dashboard for managing progressive canary rollouts of Envoy Gateway control plane and data plane (DaemonSet) components.
 
 ---
 
-## 1. Background & Problem Statement
+## 1. Overview & Key Features
 
-### As-Is (Traditional Operation)
-* Upgrading the Envoy Gateway control plane triggers simultaneous rolling updates of the Envoy Proxy DaemonSet across all worker nodes, causing connection drops, RST packets, and brief outages.
-* To avoid disruption, infrastructure teams deploy duplicate Envoy Gateway installations across separate node pools (e.g., `zone-a`, `zone-b`) and multiple namespaces, manually toggling DNS or external balancers—an error-prone, resource-heavy practice.
+### Background & Problem Statement
+* Standard control plane upgrades trigger simultaneous rolling updates across all worker nodes in the Envoy Proxy DaemonSet, which can cause connection drops or transient errors.
+* EGRC runs in a single namespace (`envoy-gateway-system`) and progressively rolls out canary pods across ingress worker node pools while verifying xDS synchronization and metric health.
 
-### To-Be (With EGRC)
-* **Single Namespace Management**: Deploy and operate a single Envoy Gateway stack in `envoy-gateway-system` while guaranteeing 0% packet loss during upgrades.
-* **Progressive Node-Level Canary**: Incrementally deploy shadow/canary pods across ingress worker node pools and verify xDS synchronization.
-* **Envoy Admin API Graceful Drain**: Directly calls Envoy's Admin API (`/drain_listeners?inboundonly`) rather than relying on blunt Kubernetes container termination, preserving in-flight sessions while shifting new connections smoothly.
-* **Automated Ephemeral Prometheus**: Spawns an on-demand, lightweight Prometheus instance strictly for the upgrade window to scrape high-resolution metrics every 5 seconds, automatically tearing it down once rollout completes (Zero external dependency).
-* **GitOps & ArgoCD Ready**: Declare a single custom resource (`EnvoyGatewayRollout`) as an ArgoCD Application, and all underlying Gateway API resources (`Gateway`, `EnvoyProxy`, `GatewayClass`) are automatically tracked and reconciled.
-* **Built-in Real-Time Web Dashboard**: Single container binary offering node topology grid visualization, live SSE metric streaming, manual controls (pause, resume, force promote, abort), and bilingual support (English / 한국어).
+### Key Features
+* **Progressive Node-Level Canary**: Incrementally deploy and test proxy pods across worker nodes in configurable steps (e.g., 1 node -> 3 nodes -> 100%).
+* **Overlapping Pods & Custom EndpointSlice**: Spawns an overlapping canary pod on the target node and registers it via a custom `EndpointSlice`, ensuring continuous traffic handling even in on-premises L4 LB (`externalTrafficPolicy: Local`) environments.
+* **Envoy Admin API Graceful Drain**: Calls Envoy's Admin API (`/drain_listeners?inboundonly`) instead of relying on abrupt pod termination, preserving in-flight sessions while shifting new connections.
+* **Ephemeral Prometheus**: Spawns a lightweight, temporary Prometheus instance only during the rollout window to scrape metrics every 5 seconds, automatically cleaning it up once finished.
+* **Automated Rollback on Anomaly**: Automatically halts rollout and rolls back to stable state if 5xx/4xx error rates or connection errors exceed defined thresholds.
+* **ArgoCD GitOps Compatibility**: Declare a single custom resource (`EnvoyGatewayRollout`) to automatically track and manage child Gateway API resources (`Gateway`, `EnvoyProxy`, `GatewayClass`).
+* **Embedded Web Dashboard**: Single container binary offering node topology grid visualization, real-time PromQL metric charts, manual controls (pause, resume, force promote, rollback), and bilingual support (English / 한국어).
 
 ---
 
@@ -37,7 +38,7 @@
 ┌────────────────────────────────────────────────────────┐
 │  Rollout Controller & Embedded Dashboard (Port 8080)   │
 │  - Node Topology Grid View (Stable / Canary / Drain)   │
-│  - Real-Time PromQL Charts (5xx Rate, Latency, Errors) │
+│  - Real-Time PromQL Charts (5xx/4xx Rate, Errors)      │
 │  - Controls: [Pause] [Resume] [Force Promote] [Abort]  │
 └───────────────┬────────────────────────┬───────────────┘
                 │                        │
@@ -46,7 +47,7 @@
 ┌──────────────────────────┐    ┌─────────────────────────────────┐
 │   Ephemeral Prometheus   │    │     Child Resources in ArgoCD   │
 │ (Active only on rollout) │    │ - GatewayClass (eg)             │
-│ - Envoy 5xx Error (<1%)  │    │ - EnvoyProxy (proxy-config)     │
+│ - Envoy 5xx/4xx Errors   │    │ - EnvoyProxy (proxy-config)     │
 │ - Upstream Conn Errors   │    │ - Gateway (eg - Port 80, 443)   │
 └──────────────────────────┘    └─────────────────┬───────────────┘
                                                   │
@@ -55,16 +56,16 @@
 │              Kubernetes Ingress LB Worker Nodes                 │
 │                                                                 │
 │  [Node 1: Canary]            [Node 2: Stable]   [Node 3: Stable]│
-│   ├── Envoy v1.9.2 (Active)   └── Envoy v1.8.5   └── Envoy v1.8.5│
-│   └── Envoy v1.8.5 (Draining)                                   │
+│   ├── Envoy v1.9.1 (Active)   └── Envoy v1.9.0   └── Envoy v1.9.0│
+│   └── Envoy v1.9.0 (Draining)                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Quick Start: Deploying Controller in Kubernetes (Single Command)
+## 3. Quick Start: Cluster Deployment (Single Command)
 
-You can deploy the entire EGRC stack (Namespace, CRD, RBAC, Controller Manager, and embedded Web Dashboard) into your Kubernetes cluster with a **single command**:
+Deploy the complete EGRC stack (Namespace, CRD, RBAC, Controller Manager, and embedded Web Dashboard) with a single command:
 
 ```bash
 # Option A: Remote deployment directly via GitHub
@@ -80,7 +81,7 @@ kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gate
 ```
 
 ### Accessing the Web UI Dashboard
-Forward port 80 of the controller Service to your local workstation:
+Forward port 80 of the controller Service to your local machine:
 ```bash
 kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
 ```
@@ -99,10 +100,10 @@ metadata:
   name: eg
   namespace: envoy-gateway-system
 spec:
-  # Target Envoy Gateway release version (e.g., v1.8.5 -> v1.9.2)
-  version: "v1.8.5"
+  # Target Envoy Gateway release version (e.g., v1.8.5 -> v1.9.1)
+  version: "v1.9.0"
 
-  # Single target namespace replacing multi-namespace setups
+  # Target namespace
   targetNamespace: "envoy-gateway-system"
 
   # Gateway resource definition
@@ -157,7 +158,7 @@ spec:
           /
           clamp_min(sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])), 0.001) * 100
       - name: http-4xx-rate
-        threshold: 5.0      # Breached if 4xx rate > 5.0% (host/path mismatch or routing errors)
+        threshold: 5.0      # Breached if 4xx rate > 5.0%
         query: |
           (
             sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
@@ -190,14 +191,14 @@ spec:
 ## 5. GitOps & ArgoCD Integration
 
 ### 5.1 Custom Lua Health Check (`argocd-cm`)
-Renders standard ArgoCD health badges (`Healthy`, `Progressing`, `Suspended`, `Degraded`) showing step progression and remaining observation countdown:
+Renders standard ArgoCD health badges (`Healthy`, `Progressing`, `Suspended`, `Degraded`) showing step progression and countdown:
 
 ```bash
 kubectl patch cm argocd-cm -n argocd --patch-file config/argocd/argocd-cm-patch.yaml
 ```
 
 ### 5.2 Prevent UI Control Conflicts (`ignoreDifferences`)
-Ensures manual operator actions (pause, force promote, instant abort) via the Web UI are not overridden by ArgoCD automated self-healing:
+Ensures manual operator actions (pause, force promote, abort) via the Web UI are not overridden by ArgoCD automated self-healing:
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -221,20 +222,20 @@ The controller embeds a lightweight React frontend served on port 8080:
 
 * **Access**: `http://<controller-ip-or-ingress>:8080`
 * **Features**:
-  1. **Node Topology View**: Real-time colored cards (Stable, Canary, Draining, Completed, Aborted) with live connection counters and drain progress.
-  2. **Prometheus Metric Analyzer**: Real-time gauges for 5xx error rate (with threshold boundary lines), connection errors, and P99 latency.
+  1. **Node Topology View**: Real-time colored cards (Stable, Canary, Draining, Upgraded, RolledBack), live active connection count per node, and drain progress.
+  2. **Prometheus Metric Analyzer**: Real-time gauges for 5xx/4xx error rates and connection errors with threshold boundary indicators.
   3. **Action Controls**:
-     * `[Upgrade Envoy Version]`: Select official Helm OCI releases (e.g. `v1.9.2`) to trigger canary upgrades.
+     * `[Upgrade Envoy Version]`: Select official Helm OCI releases (e.g., `v1.9.1`) to trigger canary upgrades.
      * `[Pause / Resume]`: Pause and resume metric evaluation timers.
-     * `[Force Promote]`: Skip waiting period and advance immediately to the next node phase.
-     * `[Manual Rollback]`: Instant zero-downtime rollback to the previous stable release.
-  4. **Internationalization (i18n)**: One-click toggle between **English** (default) and **한국어**.
+     * `[Force Promote]`: Skip observation duration and advance to the next step.
+     * `[Manual Rollback]`: Safely roll back to the previous stable release.
+  4. **Internationalization (i18n)**: Toggle between **English** and **한국어**.
 
 ---
 
-## 7. Development & Advanced Installation
+## 7. Development & Manual Deployment
 
-### 7.1 Local Build
+### 7.1 Local Build & Test
 ```bash
 # Build frontend UI and Go binary
 make build
@@ -244,53 +245,29 @@ make test
 ```
 
 ### 7.2 Docker Image
-Published official container image:
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.9
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.12
 ```
 
-### 7.3 Step-by-Step Manual Deployment (Alternative to Single-Command)
+### 7.3 Step-by-Step Manual Deployment
+If you prefer to inspect and deploy individual manifests manually:
 
-If you prefer to inspect and deploy individual manifests manually instead of using `deploy/install.yaml`:
-
-#### Step 1: Register CRD & Cluster RBAC
 ```bash
-# Register EnvoyGatewayRollout CustomResourceDefinition
+# 1. Register CRD & RBAC
 kubectl apply -f config/crd/rollout.envoyproxy.io_envoygatewayrollouts.yaml
-
-# Deploy ServiceAccount, ClusterRole, and ClusterRoleBinding (includes admissionregistration and endpointslices permissions)
 kubectl apply -f config/rbac/service_account.yaml
 kubectl apply -f config/rbac/role.yaml
 kubectl apply -f config/rbac/role_binding.yaml
-```
 
-#### Step 2: Deploy Controller Manager & Unified Service
-Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.9` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
-```bash
-# Deploy Controller Manager
+# 2. Deploy Controller Manager & Service
 kubectl apply -f config/manager/deployment.yaml
-
-# Deploy Service (envoy-gateway-rollout-controller exposing port 80 -> 8080)
 kubectl apply -f config/manager/service.yaml
 
-# Wait for controller deployment rollout
-kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
-```
-
-#### Step 3: Create Sample Rollout Resource
-```bash
-# Deploy sample TLS secret
+# 3. Create Sample Rollout Resource
 kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
-
-# Deploy EnvoyGatewayRollout CR
 kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
 
-# Monitor rollout status (Shortname: egrc)
+# 4. Check Status and Logs
 kubectl get egrc -n envoy-gateway-system -w
-kubectl describe egrc eg -n envoy-gateway-system
-```
-
-#### Step 4: Check Controller Logs
-```bash
 kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

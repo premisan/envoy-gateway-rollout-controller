@@ -81,13 +81,13 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
         <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200/80">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
             <span>{t('timeRemaining')}</span>
-            <Clock className="w-4 h-4 text-amber-500" />
+            <Clock className={`w-4 h-4 ${phase === 'Completed' ? 'text-emerald-500' : 'text-amber-500'}`} />
           </div>
           <div className="text-xl font-bold text-slate-900 font-mono">
-            {displayTimeRemaining}
+            {phase === 'Completed' ? '0s' : displayTimeRemaining}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
-            Timer
+            {phase === 'Completed' ? t('statusCompleted') : isObserving ? 'Timer' : 'Standby'}
           </div>
         </div>
 

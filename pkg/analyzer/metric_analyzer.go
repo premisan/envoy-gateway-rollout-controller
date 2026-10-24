@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -166,4 +168,95 @@ func (a *MetricAnalyzer) queryPrometheus(ctx context.Context, promURL, query str
 	}
 
 	return floatVal, nil
+}
+
+// QueryActiveConnections queries Prometheus for active downstream connection counts grouped by pod IP.
+func (a *MetricAnalyzer) QueryActiveConnections(ctx context.Context, promURL string) (map[string]int, error) {
+	if promURL == "" {
+		return nil, nil
+	}
+	query := "sum by (instance) (envoy_listener_downstream_cx_active)"
+	endpoint := fmt.Sprintf("%s/api/v1/query?query=%s", strings.TrimRight(promURL, "/"), url.QueryEscape(query))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("prometheus returned status %d", resp.StatusCode)
+	}
+
+	var pResp PromQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pResp); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]int)
+	for _, item := range pResp.Data.Result {
+		inst := item.Metric["instance"]
+		ip := strings.Split(inst, ":")[0]
+		if len(item.Value) >= 2 {
+			if valStr, ok := item.Value[1].(string); ok {
+				if f, err := strconv.ParseFloat(valStr, 64); err == nil {
+					result[ip] += int(f)
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+// QueryPodActiveConnections queries envoy pods directly via their admin metrics port (19001).
+// This serves as an immediate fallback whenever Prometheus is not running (e.g. idle/completed state).
+func (a *MetricAnalyzer) QueryPodActiveConnections(ctx context.Context, podIPs []string) map[string]int {
+	result := make(map[string]int)
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	for _, ip := range podIPs {
+		if ip == "" {
+			continue
+		}
+		url := fmt.Sprintf("http://%s:19001/stats/prometheus", ip)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		scanner := bufio.NewScanner(bytes.NewReader(body))
+		sum := 0
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.HasPrefix(line, "envoy_listener_downstream_cx_active{") {
+				if !strings.Contains(line, "19001") && !strings.Contains(line, "19000") && !strings.Contains(line, "19003") {
+					fields := strings.Fields(line)
+					if len(fields) >= 2 {
+						if val, err := strconv.Atoi(fields[1]); err == nil {
+							sum += val
+						}
+					}
+				}
+			}
+		}
+		result[ip] = sum
+	}
+	return result
 }

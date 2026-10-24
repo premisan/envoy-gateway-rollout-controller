@@ -48,7 +48,7 @@ export function useCountdownTimer(rawRemaining?: string, isActive = true): strin
     return () => clearInterval(interval);
   }, [isActive, seconds > 0]);
 
-  if (!rawRemaining || rawRemaining === '0s') {
+  if (!isActive || !rawRemaining || rawRemaining === '0s') {
     return '0s';
   }
 

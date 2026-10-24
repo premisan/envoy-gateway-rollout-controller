@@ -121,8 +121,7 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 		if rollout.Status.CurrentVersion != rollout.Spec.Version && !rollout.Spec.Control.Paused {
 			return r.handlePending(ctx, rollout)
 		}
-		// Terminal or idle states
-		return ctrl.Result{}, nil
+		return r.handleCompleted(ctx, rollout)
 	case rolloutv1alpha1.PhaseAborted:
 		// If operator or GitOps sets a new target version while not in abort control, start new rollout!
 		if rollout.Status.CurrentVersion != rollout.Spec.Version && !rollout.Spec.Control.Abort {
@@ -156,6 +155,7 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *EnvoyGatewayRolloutReconciler) handlePending(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
 	rollout.Status.TargetVersion = rollout.Spec.Version
 	rollout.Status.TotalSteps = len(rollout.Spec.Strategy.Steps)
+	rollout.Status.StepTimeRemaining = ""
 
 	if rollout.Status.CurrentVersion == "" {
 		// Initial deployment scenario
@@ -179,6 +179,86 @@ func (r *EnvoyGatewayRolloutReconciler) handlePending(ctx context.Context, rollo
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// getActiveSessionsPerNode calculates real-time active downstream sessions per node from Prometheus or directly from Envoy pods.
+func (r *EnvoyGatewayRolloutReconciler) getActiveSessionsPerNode(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout, targetNamespace string) map[string]int {
+	activeConnMap := make(map[string]int)
+	promURL := rollout.Status.EphemeralPrometheusURL
+	if promURL == "" {
+		promURL = rollout.Spec.Analysis.PrometheusURL
+	}
+
+	allEnvoyPods := &corev1.PodList{}
+	nodePodIPs := make(map[string][]string)
+	allPodIPs := make([]string, 0)
+	if err := r.List(ctx, allEnvoyPods, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+		for _, pod := range allEnvoyPods.Items {
+			if pod.Status.PodIP != "" && pod.Spec.NodeName != "" {
+				nodePodIPs[pod.Spec.NodeName] = append(nodePodIPs[pod.Spec.NodeName], pod.Status.PodIP)
+				allPodIPs = append(allPodIPs, pod.Status.PodIP)
+			}
+		}
+	}
+
+	if promURL != "" {
+		if conns, err := r.MetricAnalyzer.QueryActiveConnections(ctx, promURL); err == nil && len(conns) > 0 {
+			activeConnMap = conns
+		}
+	}
+
+	// Fallback to direct pod scrape if Prometheus is unavailable or returned empty
+	if len(activeConnMap) == 0 && len(allPodIPs) > 0 {
+		activeConnMap = r.MetricAnalyzer.QueryPodActiveConnections(ctx, allPodIPs)
+	}
+
+	nodeSessions := make(map[string]int)
+	for nodeName, ips := range nodePodIPs {
+		total := 0
+		for _, ip := range ips {
+			total += activeConnMap[ip]
+		}
+		nodeSessions[nodeName] = total
+	}
+	return nodeSessions
+}
+
+func (r *EnvoyGatewayRolloutReconciler) handleCompleted(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
+	targetNamespace := rollout.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = "envoy-gateway-system"
+	}
+
+	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
+
+	changed := false
+	if rollout.Status.StepTimeRemaining != "" {
+		rollout.Status.StepTimeRemaining = ""
+		changed = true
+	}
+	for i := range rollout.Status.Nodes {
+		node := &rollout.Status.Nodes[i]
+		curSessions := nodeSessions[node.NodeName]
+		if node.ActiveSessions != curSessions {
+			node.ActiveSessions = curSessions
+			changed = true
+		}
+		if node.Phase != "Completed" {
+			node.Phase = "Completed"
+			changed = true
+		}
+		if node.DrainProgress != 100 {
+			node.DrainProgress = 100
+			changed = true
+		}
+	}
+
+	if changed {
+		rollout.Status.LastUpdateTime = metav1.Now()
+		_ = r.Status().Update(ctx, rollout)
+	}
+
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
@@ -232,6 +312,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	if stepIdx < 0 || stepIdx >= len(rollout.Spec.Strategy.Steps) {
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
 		rollout.Status.CurrentVersion = targetVersion
+		rollout.Status.StepTimeRemaining = ""
 		rollout.Status.Message = "Rollout successfully completed across all nodes"
 		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, targetVersion)
 		r.deleteCanaryPods(ctx, targetNamespace)
@@ -242,6 +323,8 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 
 	step := rollout.Spec.Strategy.Steps[stepIdx]
 	targetCanaryCount := parseNodeCount(step.Nodes, totalNodes)
+
+	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
 
 	// Build node status list
 	nodeStatuses := make([]rolloutv1alpha1.NodeRolloutStatus, 0)
@@ -261,19 +344,18 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 		}
 
 		status := rolloutv1alpha1.NodeRolloutStatus{
-			NodeName:      nodeName,
-			NodeIP:        nodeIP,
-			ActiveVersion: rollout.Status.CurrentVersion,
+			NodeName:       nodeName,
+			NodeIP:         nodeIP,
+			ActiveVersion:  rollout.Status.CurrentVersion,
+			ActiveSessions: nodeSessions[nodeName],
 		}
 
 		if i < targetCanaryCount {
 			status.Phase = "Canary"
 			status.CanaryVersion = targetVersion
-			status.ActiveSessions = 120 + (i * 15)
 			canaryNodeNames = append(canaryNodeNames, nodeName)
 		} else {
 			status.Phase = "Stable"
-			status.ActiveSessions = 250 + (i * 20)
 		}
 		nodeStatuses = append(nodeStatuses, status)
 	}
@@ -339,11 +421,21 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	key := fmt.Sprintf("%s/%d", rollout.Name, rollout.Status.CurrentStep)
 	r.StepStartTimes[key] = time.Now()
 
+	nodeSessions = r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
+	for i := range rollout.Status.Nodes {
+		rollout.Status.Nodes[i].ActiveSessions = nodeSessions[rollout.Status.Nodes[i].NodeName]
+	}
+
 	_ = r.Status().Update(ctx, rollout)
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
 
 func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
+	targetNamespace := rollout.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = "envoy-gateway-system"
+	}
+
 	stepIdx := rollout.Status.CurrentStep - 1
 	step := rollout.Spec.Strategy.Steps[stepIdx]
 
@@ -446,6 +538,11 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
+	for i := range rollout.Status.Nodes {
+		rollout.Status.Nodes[i].ActiveSessions = nodeSessions[rollout.Status.Nodes[i].NodeName]
+	}
+
 	_ = r.Status().Update(ctx, rollout)
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
@@ -499,6 +596,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		completedVer := targetVersion
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
 		rollout.Status.CurrentVersion = completedVer
+		rollout.Status.StepTimeRemaining = ""
 		rollout.Status.Message = fmt.Sprintf("All %d steps successfully completed. Envoy Gateway upgraded to %s", rollout.Status.TotalSteps, completedVer)
 		for i := range rollout.Status.Nodes {
 			rollout.Status.Nodes[i].Phase = "Completed"
@@ -515,6 +613,11 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 	}
 
 	rollout.Status.LastUpdateTime = metav1.Now()
+	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
+	for i := range rollout.Status.Nodes {
+		rollout.Status.Nodes[i].ActiveSessions = nodeSessions[rollout.Status.Nodes[i].NodeName]
+	}
+
 	_ = r.Status().Update(ctx, rollout)
 	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
