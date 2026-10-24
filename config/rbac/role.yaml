@@ -5,28 +5,51 @@ metadata:
 rules:
   # Rollout Controller CRDs
   - apiGroups: ["rollout.envoyproxy.io"]
-    resources: ["envoygatewayrollouts", "envoygatewayrollouts/status"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["*"]
+    verbs: ["*"]
 
   # Gateway API & EnvoyProxy
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["gatewayclasses", "gateways"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["gateway.envoyproxy.io"]
-    resources: ["envoyproxies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io", "gateway.envoyproxy.io"]
+    resources: ["*"]
+    verbs: ["*"]
 
-  # Core Resources for Ephemeral Prometheus & Node monitoring
+  # Core Resources
   - apiGroups: [""]
-    resources: ["namespaces", "services", "configmaps", "pods", "nodes"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["namespaces", "services", "configmaps", "secrets", "serviceaccounts", "pods", "nodes", "events", "endpoints"]
+    verbs: ["*"]
 
-  # Apps for Ephemeral Prometheus & Envoy Deployments/DaemonSets
+  # Apps & Batch
   - apiGroups: ["apps"]
-    resources: ["deployments", "daemonsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    resources: ["deployments", "daemonsets", "statefulsets", "replicasets"]
+    verbs: ["*"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["*"]
+
+  # CRD management (for Envoy Gateway CRD pre-upgrades)
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["*"]
+
+  # RBAC management (for Envoy Gateway Helm stack)
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "clusterrolebindings", "roles", "rolebindings"]
+    verbs: ["*"]
+
+  # Admission registration (Webhooks & Admission Policies)
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations", "validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+    verbs: ["*"]
+
+  # Autoscaling & Policy
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["*"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["*"]
 
   # Coordination
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["*"]

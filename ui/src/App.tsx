@@ -48,7 +48,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
     currentStep: 1,
     totalSteps: 3,
     stepTimeRemaining: '2m 14s',
-    ephemeralPrometheusUrl: 'http://egr-prom-eg.envoy-gateway-system.svc:9090',
+    ephemeralPrometheusUrl: 'http://egrc-prom-eg.envoy-gateway-system.svc:9090',
     consecutiveFailures: 0,
     message: 'Observing Step 1/3 (1 node canary). Prometheus metrics within safe threshold.',
     nodes: [
@@ -83,6 +83,7 @@ const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
     ],
     lastMetricSnapshot: {
       'http-5xx-rate': 0.04,
+      'http-4xx-rate': 0.01,
       'connection-errors': 0.0,
       'p99-latency': 12.4,
     },

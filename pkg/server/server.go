@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
@@ -44,10 +46,24 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/rollouts/", s.handleRolloutActions)
 	mux.HandleFunc("/api/releases", s.handleReleases)
 	mux.HandleFunc("/api/stream", s.handleSSE)
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"version": "v1.0.5",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.5",
+		})
+	})
 
-	// Frontend UI static files serving
+	// Frontend UI static files serving with anti-caching for index.html
 	if s.uiFS != nil {
-		mux.Handle("/", http.FileServer(http.FS(s.uiFS)))
+		fsHandler := http.FileServer(http.FS(s.uiFS))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" || r.URL.Path == "/index.html" || strings.HasSuffix(r.URL.Path, ".html") {
+				w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				w.Header().Set("Pragma", "no-cache")
+				w.Header().Set("Expires", "0")
+			}
+			fsHandler.ServeHTTP(w, r)
+		})
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -157,45 +173,113 @@ func (s *Server) handleRolloutActions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Action dispatching
+	// Action dispatching with optimistic concurrency retry (RetryOnConflict)
 	switch action {
 	case "pause":
-		rollout.Spec.Control.Paused = true
-		_ = s.client.Update(ctx, rollout)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			current.Spec.Control.Paused = true
+			return s.client.Update(ctx, current)
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to pause rollout: %v", err), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Rollout paused"})
 	case "resume":
-		rollout.Spec.Control.Paused = false
-		if rollout.Status.Phase == rolloutv1alpha1.PhasePaused {
-			rollout.Status.Phase = rolloutv1alpha1.PhaseObserving
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			current.Spec.Control.Paused = false
+			return s.client.Update(ctx, current)
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to resume rollout: %v", err), http.StatusInternalServerError)
+			return
 		}
-		_ = s.client.Update(ctx, rollout)
-		_ = s.client.Status().Update(ctx, rollout)
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Rollout resumed"})
 	case "abort", "rollback":
-		rollout.Spec.Control.Abort = true
-		_ = s.client.Update(ctx, rollout)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			current.Spec.Control.Abort = true
+			return s.client.Update(ctx, current)
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to trigger rollback: %v", err), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Rollback triggered"})
 	case "force-promote":
-		rollout.Spec.Control.ForcePromote = true
-		_ = s.client.Update(ctx, rollout)
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			current.Spec.Control.ForcePromote = true
+			return s.client.Update(ctx, current)
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to force promote: %v", err), http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Force promote triggered"})
 	case "upgrade":
 		var req struct {
 			TargetVersion string `json:"targetVersion"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TargetVersion == "" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.TargetVersion) == "" {
 			http.Error(w, "Invalid targetVersion", http.StatusBadRequest)
 			return
 		}
-		rollout.Spec.Version = req.TargetVersion
-		rollout.Spec.Control.Abort = false
-		rollout.Spec.Control.Paused = false
-		rollout.Status.Phase = rolloutv1alpha1.PhaseDeploying
-		rollout.Status.CurrentStep = 1
-		rollout.Status.ConsecutiveFailures = 0
-		_ = s.client.Update(ctx, rollout)
-		_ = s.client.Status().Update(ctx, rollout)
-		writeJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Upgrade to %s initiated", req.TargetVersion)})
+		cleanTarget := strings.TrimSpace(req.TargetVersion)
+
+		// 1. Update Spec using RetryOnConflict to avoid conflict with active reconciler
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			current.Spec.Version = cleanTarget
+			current.Spec.Control.Abort = false
+			current.Spec.Control.Paused = false
+			return s.client.Update(ctx, current)
+		})
+		if err != nil {
+			fmt.Printf("[Server] Error updating rollout spec: %v\n", err)
+			http.Error(w, fmt.Sprintf("Failed to update rollout spec: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// 2. Best-effort optimistic status update with RetryOnConflict
+		// Note: The controller reconciler automatically triggers on spec change and transitions status to PhaseDeploying.
+		_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+			if err := s.client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, current); err != nil {
+				return err
+			}
+			if current.Status.CurrentVersion != cleanTarget && current.Status.Phase != rolloutv1alpha1.PhaseDeploying && current.Status.Phase != rolloutv1alpha1.PhaseObserving {
+				current.Status.TargetVersion = cleanTarget
+				current.Status.Phase = rolloutv1alpha1.PhaseDeploying
+				current.Status.CurrentStep = 1
+				current.Status.ConsecutiveFailures = 0
+				current.Status.Message = fmt.Sprintf("Upgrade to %s initiated by operator", cleanTarget)
+				current.Status.LastUpdateTime = metav1.Now()
+				return s.client.Status().Update(ctx, current)
+			}
+			return nil
+		})
+
+		fmt.Printf("[Server] Successfully initiated upgrade of %s to %s\n", name, cleanTarget)
+		writeJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Upgrade to %s initiated", cleanTarget)})
+		writeJSON(w, http.StatusOK, map[string]string{"message": fmt.Sprintf("Upgrade to %s initiated", cleanTarget)})
 	default:
 		http.Error(w, "Unknown action: "+action, http.StatusBadRequest)
 	}
@@ -237,7 +321,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) startBroadcaster(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {

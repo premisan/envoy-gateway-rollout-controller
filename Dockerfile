@@ -21,7 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -o /manager ./cmd/controller
 
 # Final minimal runtime
 FROM alpine:3.20
-RUN apk --no-cache add ca-certificates tzdata
+RUN apk --no-cache add ca-certificates tzdata helm kubectl
+ENV HOME=/tmp
 WORKDIR /
 COPY --from=go-builder /manager /manager
 COPY --from=ui-builder /app/ui/dist /ui/dist

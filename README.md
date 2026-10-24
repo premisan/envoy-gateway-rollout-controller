@@ -129,7 +129,24 @@ spec:
         query: |
           sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5", instance=~"$CANARY_NODES.*"}[1m]))
           /
-          sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])) * 100
+          clamp_min(sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])), 0.001) * 100
+      - name: http-4xx-rate
+        threshold: 5.0      # Breached if 4xx rate > 5.0% (host/path mismatch or routing errors)
+        query: |
+          (
+            sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+          )
+          /
+          clamp_min(
+            sum(rate(envoy_http_downstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])),
+            0.001
+          ) * 100
       - name: connection-errors
         threshold: 5.0
         query: |
@@ -206,25 +223,55 @@ Published official container image:
 docker pull premisan0/envoy-gateway-rollout-controller:latest
 ```
 
-### 6.3 Deploy to Kubernetes
+### 6.3 Deploying the Controller Inside Kubernetes (In-Cluster)
+
+The controller can run directly inside the target Kubernetes cluster as a standalone deployment along with its embedded real-time Web UI.
+
+#### Step 1: Register CRD & Cluster RBAC
 ```bash
-# 1. Register CRD
+# Register EnvoyGatewayRollout CustomResourceDefinition
 kubectl apply -f config/crd/rollout.envoyproxy.io_envoygatewayrollouts.yaml
 
-# 2. Deploy RBAC and Controller Manager
+# Deploy ServiceAccount, ClusterRole, and ClusterRoleBinding (includes admissionregistration permissions for Gateway API CRDs)
 kubectl apply -f config/rbac/service_account.yaml
 kubectl apply -f config/rbac/role.yaml
 kubectl apply -f config/rbac/role_binding.yaml
+```
+
+#### Step 2: Deploy Controller Manager & Unified Service
+Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.5` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
+```bash
+# Deploy Controller Manager
 kubectl apply -f config/manager/deployment.yaml
+
+# Deploy Service (envoy-gateway-rollout-controller exposing port 80 -> 8080)
 kubectl apply -f config/manager/service.yaml
 
-# 3. Create Sample Rollout Resource
+# Wait for controller deployment rollout
+kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
+```
+
+#### Step 3: Access Web UI Dashboard
+Forward port 80 of the controller Service to your local machine:
+```bash
+kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
+```
+Open **`http://localhost:8080`** in your browser to view the real-time node topology, 4xx/5xx metric guardrails, and control buttons.
+
+#### Step 4: Create Rollout Resource
+```bash
+# Deploy sample TLS secret
 kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
+
+# Deploy EnvoyGatewayRollout CR
 kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
 
-# (Optional) Deploy Sample Workload (Nginx) via ArgoCD
-kubectl apply -f config/argocd/application-nginx.yaml
+# Monitor rollout status (Shortname: egrc)
+kubectl get egrc -n envoy-gateway-system -w
+kubectl describe egrc eg -n envoy-gateway-system
+```
 
-# 4. Check Status (Shortname: egrc)
-kubectl get egrc -n envoy-gateway-system
+#### Step 5: Check Controller Logs
+```bash
+kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

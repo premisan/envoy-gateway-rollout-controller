@@ -20,8 +20,8 @@ export const Navbar: React.FC<Props> = ({ connected }) => {
           <h1 className="font-bold text-base text-slate-900 tracking-tight">
             {t('appTitle')}
           </h1>
-          <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-mono font-bold">
-            EGRC
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-sky-700 font-mono font-bold">
+            EGRC v1.0.5
           </span>
         </div>
       </div>

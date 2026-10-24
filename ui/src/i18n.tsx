@@ -35,15 +35,15 @@ export const translations = {
 
     // Pipeline
     pipelineTitle: 'Rollout Pipeline',
-    step1Title: 'Canary & xDS',
-    step1Desc: 'Deploy shadow pod & sync routes',
-    step2Title: 'Health Check',
-    step2Desc: 'Evaluate 5xx error rate & connections',
-    step3Title: 'Inbound Drain',
-    step3Desc: 'Inbound drain via Admin API',
-    step4Title: 'Node Cutover',
-    step4Desc: 'Progressive traffic switch',
-    step5Title: 'Completion',
+    step1Title: 'CRD & Helm Sync',
+    step1Desc: 'Apply CRDs & control plane stack',
+    step2Title: 'Canary & xDS',
+    step2Desc: 'Deploy canary pod & sync routes',
+    step3Title: 'Metrics Guardrail',
+    step3Desc: 'Evaluate 5xx error rate & connections',
+    step4Title: 'Inbound Drain',
+    step4Desc: 'Drain listeners via Admin API',
+    step5Title: 'Node Cutover',
     step5Desc: 'All nodes updated & cleanup',
     currentActionDetails: 'Current Status',
 
@@ -60,6 +60,7 @@ export const translations = {
     // MetricCharts
     metricAnalysisTitle: 'Metrics & Guardrails',
     metric5xx: 'HTTP 5xx Rate',
+    metric4xx: 'HTTP 4xx Rate',
     metricConnError: 'Connection Errors',
     metricLatency: 'P99 Latency',
     threshold: 'Limit',
@@ -117,16 +118,16 @@ export const translations = {
 
     // Pipeline
     pipelineTitle: '진행 파이프라인',
-    step1Title: '카나리 & xDS',
-    step1Desc: '파드 배치 및 경로 동기화',
-    step2Title: '메트릭 검증',
-    step2Desc: '5xx 에러율 및 커넥션 평가',
-    step3Title: '인바운드 드레인',
-    step3Desc: 'Admin API 인바운드 드레인',
-    step4Title: '노드 절체',
-    step4Desc: '단계별 트래픽 전환',
-    step5Title: '완료 및 정리',
-    step5Desc: '전체 완료 및 자원 회수',
+    step1Title: 'CRD & 릴리즈 동기화',
+    step1Desc: 'CRD 및 컨트롤 플레인 스택 갱신',
+    step2Title: '카나리 & xDS',
+    step2Desc: '카나리 파드 배치 및 경로 동기화',
+    step3Title: '메트릭 가드레일',
+    step3Desc: '5xx 에러율 및 커넥션 평가',
+    step4Title: '인바운드 드레인',
+    step4Desc: 'Admin API 인바운드 드레인',
+    step5Title: '노드 절체 및 완료',
+    step5Desc: '전체 완료 및 임시 자원 정리',
     currentActionDetails: '현재 상태',
 
     // NodeTopologyView
@@ -142,6 +143,7 @@ export const translations = {
     // MetricCharts
     metricAnalysisTitle: '메트릭 및 임계치',
     metric5xx: '5xx 에러율',
+    metric4xx: '4xx 에러율 (Host/경로 감지)',
     metricConnError: '커넥션 오류',
     metricLatency: 'P99 레이턴시',
     threshold: '임계치',

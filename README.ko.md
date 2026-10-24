@@ -125,11 +125,28 @@ spec:
     failureLimit: 3         # 연속 3회 임계치 초과 시 자동 롤백
     metrics:
       - name: http-5xx-rate
-        threshold: 1.0      # 5xx 에러율 1% 초과 시 이상 감지
+        threshold: 1.0      # 5xx 에러율 1.0% 초과 시 이상 감지
         query: |
           sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5", instance=~"$CANARY_NODES.*"}[1m]))
           /
-          sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])) * 100
+          clamp_min(sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])), 0.001) * 100
+      - name: http-4xx-rate
+        threshold: 5.0      # 4xx 에러율 5.0% 초과 시 이상 감지 (Host 헤더 불일치 및 라우팅 경로 매칭 실패 감지)
+        query: |
+          (
+            sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+          )
+          /
+          clamp_min(
+            sum(rate(envoy_http_downstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])),
+            0.001
+          ) * 100
       - name: connection-errors
         threshold: 5.0
         query: |
@@ -205,25 +222,55 @@ make test
 make docker-build
 ```
 
-### 6.3 클러스터 배포
+### 6.3 쿠버네티스 클러스터 내부 배포 (In-Cluster)
+
+컨트롤러는 경량 React 대시보드와 통합된 단일 바이너리로 쿠버네티스 클러스터 내부에 배포되어 동작합니다.
+
+#### 1단계: CRD 및 클러스터 RBAC 적용
 ```bash
-# 1. CRD 등록
+# EnvoyGatewayRollout 커스텀 리소스 정의(CRD) 등록
 kubectl apply -f config/crd/rollout.envoyproxy.io_envoygatewayrollouts.yaml
 
-# 2. RBAC 및 Controller 배포
+# ServiceAccount, ClusterRole, ClusterRoleBinding 생성 (Gateway API CRD 관리를 위한 admissionregistration 권한 포함)
 kubectl apply -f config/rbac/service_account.yaml
 kubectl apply -f config/rbac/role.yaml
 kubectl apply -f config/rbac/role_binding.yaml
+```
+
+#### 2단계: 컨트롤러 매니저 및 통합 Service 배포
+`helm`, `kubectl`, React 웹 UI가 내장된 공식 이미지(`premisan0/envoy-gateway-rollout-controller:v1.0.5`) 기반의 Deployment와 단일 Service(`envoy-gateway-rollout-controller`)를 배포합니다.
+```bash
+# 컨트롤러 Deployment 배포
 kubectl apply -f config/manager/deployment.yaml
+
+# 컨트롤러 Service 배포 (80 -> 컨테이너 8080)
 kubectl apply -f config/manager/service.yaml
 
-# 3. 샘플 Rollout 리소스 생성
+# 컨트롤러 파드 롤아웃 상태 확인
+kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
+```
+
+#### 3단계: 웹 UI 대시보드 접속
+컨트롤러 Service를 로컬 포트로 포트포워딩하여 브라우저에서 대시보드에 접속합니다:
+```bash
+kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
+```
+웹 브라우저에서 **`http://localhost:8080`**으로 접속하면 실시간 노드 토폴로지, 4xx/5xx 메트릭 가드레일 모니터링, 버전 업그레이드 모달 및 수동 제어(일시정지, 재개, 즉시 승급, 롤백) 버튼을 사용할 수 있습니다.
+
+#### 4단계: 샘플 Rollout 리소스 생성
+```bash
+# 샘플 TLS Secret 배포
 kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
+
+# EnvoyGatewayRollout CR 배포
 kubectl apply -f config/samples/envoy-gateway/rollout_envoy_gateway_system.yaml
 
-# (선택) Nginx 샘플 워크로드 분리 배포 (ArgoCD)
-kubectl apply -f config/argocd/application-nginx.yaml
+# 실시간 롤아웃 진행 상태 확인 (단축어: egrc)
+kubectl get egrc -n envoy-gateway-system -w
+kubectl describe egrc eg -n envoy-gateway-system
+```
 
-# 4. EGRC 리소스 상태 확인 (단축어: egrc)
-kubectl get egrc -n envoy-gateway-system
+#### 5단계: 컨트롤러 로그 모니터링
+```bash
+kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

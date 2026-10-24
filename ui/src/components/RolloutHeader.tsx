@@ -2,6 +2,7 @@ import React from 'react';
 import { RolloutItem } from '../types';
 import { ArrowRight, Clock, Cpu, Server, CheckCircle2, AlertTriangle, PauseCircle, Flame } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { useCountdownTimer } from '../hooks/useCountdownTimer';
 
 interface Props {
   rollout: RolloutItem;
@@ -11,6 +12,10 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
   const { t } = useI18n();
   const status = rollout.status;
   const phase = status?.phase || 'Pending';
+  const isPaused = phase === 'Paused' || rollout.spec.control?.paused;
+  const isObserving = phase === 'Observing' && !isPaused;
+
+  const displayTimeRemaining = useCountdownTimer(status?.stepTimeRemaining, isObserving);
 
   const getPhaseBadge = (p: string) => {
     switch (p) {
@@ -53,7 +58,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
           <ArrowRight className="w-4 h-4 text-slate-400" />
           <div>
             <div className="text-[10px] text-slate-400 uppercase font-semibold">{t('targetVersion')}</div>
-            <div className="font-mono text-sm font-bold text-sky-600">{rollout.spec.version}</div>
+            <div className="font-mono text-sm font-bold text-sky-600">{status?.targetVersion || rollout.spec.version}</div>
           </div>
         </div>
       </div>
@@ -79,7 +84,7 @@ export const RolloutHeader: React.FC<Props> = ({ rollout }) => {
             <Clock className="w-4 h-4 text-amber-500" />
           </div>
           <div className="text-xl font-bold text-slate-900 font-mono">
-            {status?.stepTimeRemaining || '0s'}
+            {displayTimeRemaining}
           </div>
           <div className="text-[11px] text-slate-400 mt-0.5">
             Timer

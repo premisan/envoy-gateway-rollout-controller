@@ -1,7 +1,8 @@
 import React from 'react';
 import { RolloutItem } from '../types';
 import { useI18n } from '../i18n';
-import { GitCommit, Activity, ArrowDownCircle, FastForward, CheckCircle2, Clock, Server, ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Server, Activity, ArrowDownCircle, CheckCircle2, Clock } from 'lucide-react';
+import { useCountdownTimer } from '../hooks/useCountdownTimer';
 
 interface Props {
   rollout: RolloutItem;
@@ -13,31 +14,34 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
   const phase = status?.phase || 'Pending';
   const currentStep = status?.currentStep || 1;
   const totalSteps = status?.totalSteps || rollout.spec.strategy.steps.length || 3;
+  const isPaused = phase === 'Paused' || rollout.spec.control?.paused;
+  const isObserving = phase === 'Observing' && !isPaused;
+
+  const displayTimeRemaining = useCountdownTimer(status?.stepTimeRemaining, isObserving);
 
   const getStageState = (stageIndex: number): 'completed' | 'active' | 'pending' | 'aborted' => {
     if (phase === 'Aborted' || phase === 'RollingBack') {
-      return stageIndex === 2 ? 'aborted' : 'completed';
+      return stageIndex === 3 ? 'aborted' : stageIndex < 3 ? 'completed' : 'pending';
     }
     if (phase === 'Completed') {
       return 'completed';
     }
 
-    if (stageIndex === 1) return 'completed';
+    if (stageIndex === 1) {
+      return phase === 'Pending' ? 'active' : 'completed';
+    }
     if (stageIndex === 2) {
-      if (phase === 'Observing' || phase === 'CanaryRunning') return 'active';
-      if (phase === 'Draining' || phase === 'Completed') return 'completed';
+      if (phase === 'Deploying' || phase === 'CanaryRunning') return 'active';
+      if (phase === 'Observing' || phase === 'Draining') return 'completed';
       return 'pending';
     }
     if (stageIndex === 3) {
-      if (phase === 'Draining') return 'active';
-      if (phase === 'Completed') return 'completed';
+      if (phase === 'Observing') return 'active';
+      if (phase === 'Draining') return 'completed';
       return 'pending';
     }
     if (stageIndex === 4) {
-      if (phase === 'Observing' || phase === 'CanaryRunning' || phase === 'Draining') {
-        return currentStep > 1 ? 'active' : 'pending';
-      }
-      if (phase === 'Completed') return 'completed';
+      if (phase === 'Draining') return 'active';
       return 'pending';
     }
     if (stageIndex === 5) {
@@ -49,10 +53,10 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
   };
 
   const stages = [
-    { idx: 1, title: t('step1Title'), desc: t('step1Desc'), icon: GitCommit },
-    { idx: 2, title: t('step2Title'), desc: t('step2Desc'), icon: Activity },
-    { idx: 3, title: t('step3Title'), desc: t('step3Desc'), icon: ArrowDownCircle },
-    { idx: 4, title: t('step4Title'), desc: t('step4Desc'), icon: FastForward },
+    { idx: 1, title: t('step1Title'), desc: t('step1Desc'), icon: ShieldCheck },
+    { idx: 2, title: t('step2Title'), desc: t('step2Desc'), icon: Server },
+    { idx: 3, title: t('step3Title'), desc: t('step3Desc'), icon: Activity },
+    { idx: 4, title: t('step4Title'), desc: t('step4Desc'), icon: ArrowDownCircle },
     { idx: 5, title: t('step5Title'), desc: t('step5Desc'), icon: CheckCircle2 },
   ];
 
@@ -118,7 +122,7 @@ export const RolloutPipelineView: React.FC<Props> = ({ rollout }) => {
                 <span>0{stage.idx}</span>
                 {state === 'active' && status?.stepTimeRemaining && (
                   <span className="text-amber-600 font-bold flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> {status.stepTimeRemaining}
+                    <Clock className="w-3 h-3" /> {displayTimeRemaining}
                   </span>
                 )}
               </div>

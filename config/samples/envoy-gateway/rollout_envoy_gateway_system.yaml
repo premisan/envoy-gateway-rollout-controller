@@ -5,7 +5,7 @@ metadata:
   namespace: envoy-gateway-system
 spec:
   # Target Envoy Gateway release version
-  version: "v1.8.5"
+  version: "v1.9.0"
 
   # Single target namespace replacing multi-namespace dual setups
   targetNamespace: "envoy-gateway-system"
@@ -60,7 +60,24 @@ spec:
         query: |
           sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5", instance=~"$CANARY_NODES.*"}[1m]))
           /
-          sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])) * 100
+          clamp_min(sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])), 0.001) * 100
+      - name: http-4xx-rate
+        threshold: 5.0      # Breached if 4xx rate > 5.0% (host mismatch or routing error)
+        query: |
+          (
+            sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="4", instance=~"$CANARY_NODES.*"}[1m]))
+          )
+          /
+          clamp_min(
+            sum(rate(envoy_http_downstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m]))
+            or
+            sum(rate(envoy_cluster_upstream_rq_xx{instance=~"$CANARY_NODES.*"}[1m])),
+            0.001
+          ) * 100
       - name: connection-errors
         threshold: 5.0
         query: |

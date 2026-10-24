@@ -25,3 +25,4 @@ spec:
       kind: EnvoyGatewayRollout
       jsonPointers:
         - /spec/control
+        - /spec/version

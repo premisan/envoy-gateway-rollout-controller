@@ -8,6 +8,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -20,6 +21,7 @@ import (
 	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
 	"github.com/envoy-gateway-rollout-controller/pkg/analyzer"
 	"github.com/envoy-gateway-rollout-controller/pkg/envoy"
+	"github.com/envoy-gateway-rollout-controller/pkg/helm"
 )
 
 // EnvoyGatewayRolloutReconciler reconciles an EnvoyGatewayRollout object.
@@ -83,7 +85,7 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	// 3. Check for manual intervention (Pause / Abort)
-	if rollout.Spec.Control.Abort && rollout.Status.Phase != rolloutv1alpha1.PhaseAborted {
+	if rollout.Spec.Control.Abort {
 		logger.Info("Manual abort requested via spec.control.abort")
 		return r.handleAbort(ctx, rollout, "Manual rollback requested by operator")
 	}
@@ -111,11 +113,23 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.handleDraining(ctx, rollout)
 	case rolloutv1alpha1.PhaseRollingBack:
 		return r.handleAbort(ctx, rollout, "Rolling back to stable state")
-	case rolloutv1alpha1.PhaseCompleted, rolloutv1alpha1.PhaseAborted, rolloutv1alpha1.PhasePaused:
+	case rolloutv1alpha1.PhaseCompleted:
 		if rollout.Status.CurrentVersion != rollout.Spec.Version && !rollout.Spec.Control.Paused {
 			return r.handlePending(ctx, rollout)
 		}
 		// Terminal or idle states
+		return ctrl.Result{}, nil
+	case rolloutv1alpha1.PhaseAborted:
+		// If operator or GitOps sets a new target version while not in abort control, start new rollout!
+		if rollout.Status.CurrentVersion != rollout.Spec.Version && !rollout.Spec.Control.Abort {
+			logger.Info("New target version specified after abort, starting new rollout",
+				"currentVersion", rollout.Status.CurrentVersion,
+				"targetVersion", rollout.Spec.Version)
+			return r.handlePending(ctx, rollout)
+		}
+		return ctrl.Result{}, nil
+	case rolloutv1alpha1.PhasePaused:
+		// Suspended states: DO NOT auto-retry without explicit operator resume
 		return ctrl.Result{}, nil
 	default:
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -169,10 +183,35 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 		totalNodes = 3 // Fallback default for demo/dev
 	}
 
+	if rollout.Status.TargetVersion == "" {
+		rollout.Status.TargetVersion = rollout.Spec.Version
+	}
+	targetVersion := rollout.Status.TargetVersion
+
+	targetNamespace := rollout.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = "envoy-gateway-system"
+	}
+
+	// [Pre-Upgrade Metric Guardrail]
+	// Spawn and start Ephemeral Prometheus BEFORE CRD or Control Plane upgrades are applied.
+	// This ensures we continuously monitor baseline traffic and detect any CRD schema/version incompatibility errors.
+	if rollout.Spec.Analysis.EphemeralPrometheus.Enabled {
+		ephemeralURL, err := r.PromManager.EnsureEphemeralPrometheus(ctx, rollout, nil)
+		if err != nil {
+			logger.Error(err, "Failed to spawn pre-upgrade ephemeral prometheus")
+		} else {
+			rollout.Status.EphemeralPrometheusURL = ephemeralURL
+			logger.Info("Pre-upgrade ephemeral prometheus active prior to CRD synchronization", "url", ephemeralURL)
+		}
+	}
+
+	_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, targetVersion)
+
 	stepIdx := rollout.Status.CurrentStep - 1
 	if stepIdx < 0 || stepIdx >= len(rollout.Spec.Strategy.Steps) {
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
-		rollout.Status.CurrentVersion = rollout.Spec.Version
+		rollout.Status.CurrentVersion = targetVersion
 		rollout.Status.Message = "Rollout successfully completed across all nodes"
 		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
 		_ = r.Status().Update(ctx, rollout)
@@ -208,7 +247,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 
 		if i < targetCanaryCount {
 			status.Phase = "Canary"
-			status.CanaryVersion = rollout.Spec.Version
+			status.CanaryVersion = targetVersion
 			status.ActiveSessions = 120 + (i * 15)
 			canaryNodeNames = append(canaryNodeNames, nodeName)
 			canaryPodIPs = append(canaryPodIPs, nodeIP)
@@ -239,7 +278,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	r.StepStartTimes[key] = time.Now()
 
 	_ = r.Status().Update(ctx, rollout)
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
 
 func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
@@ -285,7 +324,12 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 			{
 				Name:      "http-5xx-rate",
 				Threshold: 1.0,
-				Query:     `sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5"}[1m])) / sum(rate(envoy_cluster_upstream_rq_xx[1m])) * 100`,
+				Query:     `sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="5"}[1m])) / clamp_min(sum(rate(envoy_cluster_upstream_rq_xx[1m])), 0.001) * 100`,
+			},
+			{
+				Name:      "http-4xx-rate",
+				Threshold: 5.0,
+				Query:     `(sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class="4"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{response_code_class="4"}[1m]))) / clamp_min(sum(rate(envoy_http_downstream_rq_xx[1m])) or sum(rate(envoy_cluster_upstream_rq_xx[1m])), 0.001) * 100`,
 			},
 		}
 	}
@@ -312,7 +356,10 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 
 	// Check if step observation time passed or manual ForcePromote requested
 	if remaining == 0 || rollout.Spec.Control.ForcePromote {
-		rollout.Spec.Control.ForcePromote = false
+		if rollout.Spec.Control.ForcePromote {
+			rollout.Spec.Control.ForcePromote = false
+			_ = r.Update(ctx, rollout)
+		}
 		rollout.Status.Phase = rolloutv1alpha1.PhaseDraining
 		rollout.Status.Message = fmt.Sprintf("Step %d observation passed. Draining old listeners on canary nodes.", rollout.Status.CurrentStep)
 		_ = r.Status().Update(ctx, rollout)
@@ -320,11 +367,20 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 	}
 
 	_ = r.Status().Update(ctx, rollout)
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 }
 
 func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
+
+	targetNamespace := rollout.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = "envoy-gateway-system"
+	}
+	targetVersion := rollout.Status.TargetVersion
+	if targetVersion == "" {
+		targetVersion = rollout.Spec.Version
+	}
 
 	// Trigger Envoy Admin API listener drain on old instances
 	for i := range rollout.Status.Nodes {
@@ -334,6 +390,17 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 			node.DrainProgress = 50
 			// Call /drain_listeners?inboundonly
 			_ = r.AdminClient.DrainListeners(ctx, node.NodeIP, 19001)
+
+			// Gracefully rotate the envoy-proxy pod on this node to trigger DaemonSet pod recreation with new image
+			podList := &corev1.PodList{}
+			if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+				for _, pod := range podList.Items {
+					if pod.Spec.NodeName == node.NodeName {
+						logger.Info("Rotating envoy-proxy pod on node after drain", "node", node.NodeName, "pod", pod.Name)
+						_ = r.Delete(ctx, &pod)
+					}
+				}
+			}
 		}
 	}
 
@@ -345,15 +412,17 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		rollout.Status.Message = fmt.Sprintf("Advancing to Step %d/%d", rollout.Status.CurrentStep, rollout.Status.TotalSteps)
 	} else {
 		// All steps completed!
+		completedVer := targetVersion
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
-		rollout.Status.CurrentVersion = rollout.Spec.Version
-		rollout.Status.Message = fmt.Sprintf("All %d steps successfully completed. Envoy Gateway upgraded to %s", rollout.Status.TotalSteps, rollout.Spec.Version)
+		rollout.Status.CurrentVersion = completedVer
+		rollout.Status.Message = fmt.Sprintf("All %d steps successfully completed. Envoy Gateway upgraded to %s", rollout.Status.TotalSteps, completedVer)
 		for i := range rollout.Status.Nodes {
 			rollout.Status.Nodes[i].Phase = "Completed"
-			rollout.Status.Nodes[i].ActiveVersion = rollout.Spec.Version
+			rollout.Status.Nodes[i].ActiveVersion = completedVer
 			rollout.Status.Nodes[i].CanaryVersion = ""
 			rollout.Status.Nodes[i].DrainProgress = 100
 		}
+		_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, completedVer)
 		// Clean up temporary Prometheus
 		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
 	}
@@ -364,14 +433,42 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 }
 
 func (r *EnvoyGatewayRolloutReconciler) handleAbort(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout, reason string) (ctrl.Result, error) {
-	rollout.Status.Phase = rolloutv1alpha1.PhaseAborted
-	rollout.Status.Message = fmt.Sprintf("Rollout aborted: %s", reason)
-	rollout.Spec.Control.Abort = false
+	logger := log.FromContext(ctx)
+	logger.Info("Executing rollout abort and restoring stable state", "reason", reason)
 
-	// Revert nodes to active version
+	stableVersion := rollout.Status.CurrentVersion
+	if stableVersion == "" {
+		stableVersion = rollout.Spec.Version
+	}
+
+	targetNamespace := rollout.Spec.TargetNamespace
+	if targetNamespace == "" {
+		targetNamespace = "envoy-gateway-system"
+	}
+
+	// 1. Clear control flags and align spec.version to stableVersion to prevent drift retry loops
+	rollout.Spec.Control.Abort = false
+	rollout.Spec.Control.Paused = false
+	rollout.Spec.Control.ForcePromote = false
+	rollout.Spec.Version = stableVersion
+	if err := r.Update(ctx, rollout); err != nil {
+		logger.Error(err, "Failed to update spec during abort")
+	}
+
+	// 2. Rollback workloads to stable version
+	_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, stableVersion)
+
+	// 3. Update status to Aborted terminal state
+	rollout.Status.Phase = rolloutv1alpha1.PhaseAborted
+	rollout.Status.TargetVersion = stableVersion
+	rollout.Status.Message = fmt.Sprintf("Rollout aborted and restored to %s: %s", stableVersion, reason)
+	rollout.Status.StepTimeRemaining = ""
+
 	for i := range rollout.Status.Nodes {
 		rollout.Status.Nodes[i].Phase = "RolledBack"
+		rollout.Status.Nodes[i].ActiveVersion = stableVersion
 		rollout.Status.Nodes[i].CanaryVersion = ""
+		rollout.Status.Nodes[i].DrainProgress = 0
 	}
 
 	_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
@@ -530,4 +627,94 @@ func stringMapToInterfaceMap(m map[string]string) map[string]interface{} {
 		res[k] = v
 	}
 	return res
+}
+
+// syncWorkloadImages ensures the underlying Kubernetes Deployment (Control Plane)
+// and DaemonSet (Data Plane) actually transition their container images to the target version.
+func (r *EnvoyGatewayRolloutReconciler) syncWorkloadImages(
+	ctx context.Context,
+	rollout *rolloutv1alpha1.EnvoyGatewayRollout,
+	targetNamespace string,
+	targetVersion string,
+) error {
+	logger := log.FromContext(ctx)
+
+	// 0. Synchronize CRDs and Envoy Gateway stack using official Helm OCI chart
+	releaseName := rollout.Spec.Gateway.Name
+	if releaseName == "" {
+		releaseName = "eg"
+	}
+	if err := helm.SyncHelmRelease(ctx, releaseName, targetNamespace, targetVersion); err != nil {
+		logger.Info("Helm OCI sync notice (continuing with direct resource reconciliation)", "detail", err.Error())
+	}
+
+	// 1. Update Envoy Gateway Control Plane Deployment
+	deploy := &appsv1.Deployment{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-gateway"}, deploy)
+	if err == nil {
+		updated := false
+		targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
+		for i := range deploy.Spec.Template.Spec.Containers {
+			c := &deploy.Spec.Template.Spec.Containers[i]
+			if c.Name == "envoy-gateway" && !imageEquals(c.Image, targetGatewayImage) {
+				logger.Info("Updating envoy-gateway deployment image", "from", c.Image, "to", targetGatewayImage)
+				c.Image = targetGatewayImage
+				updated = true
+			}
+		}
+		if updated {
+			if err := r.Update(ctx, deploy); err != nil {
+				logger.Error(err, "Failed to update envoy-gateway deployment image")
+			}
+		}
+	}
+
+	// 2. Update Envoy Proxy DataPlane DaemonSet
+	ds := &appsv1.DaemonSet{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, ds)
+	if err == nil {
+		updated := false
+		targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
+		targetEnvoyImage := "docker.io/envoyproxy/envoy:distroless-v1.39.0"
+		if strings.HasPrefix(targetVersion, "v1.2") {
+			targetEnvoyImage = "docker.io/envoyproxy/envoy:distroless-v1.32.3"
+		}
+
+		for i := range ds.Spec.Template.Spec.Containers {
+			c := &ds.Spec.Template.Spec.Containers[i]
+			if c.Name == "shutdown-manager" && !imageEquals(c.Image, targetGatewayImage) {
+				logger.Info("Updating envoy-proxy daemonset shutdown-manager image", "from", c.Image, "to", targetGatewayImage)
+				c.Image = targetGatewayImage
+				updated = true
+			}
+			if c.Name == "envoy" && !imageEquals(c.Image, targetEnvoyImage) {
+				logger.Info("Updating envoy-proxy daemonset envoy image", "from", c.Image, "to", targetEnvoyImage)
+				c.Image = targetEnvoyImage
+				updated = true
+			}
+		}
+		if updated {
+			if err := r.Update(ctx, ds); err != nil {
+				logger.Error(err, "Failed to update envoy-proxy daemonset images")
+			} else {
+				// Rotate running pods so they immediately recreate with new template
+				podList := &corev1.PodList{}
+				if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+					for _, pod := range podList.Items {
+						logger.Info("Rotating older envoy-proxy pod for new image", "pod", pod.Name)
+						_ = r.Delete(ctx, &pod)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// imageEquals normalizes docker registry prefixes to avoid false positive diffs.
+func imageEquals(img1, img2 string) bool {
+	clean1 := strings.TrimPrefix(strings.TrimPrefix(img1, "docker.io/"), "library/")
+	clean2 := strings.TrimPrefix(strings.TrimPrefix(img2, "docker.io/"), "library/")
+	return clean1 == clean2
 }

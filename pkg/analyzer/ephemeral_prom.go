@@ -17,7 +17,7 @@ import (
 
 const (
 	DefaultPrometheusImage = "prom/prometheus:v2.54.0"
-	EphemeralPromPrefix    = "egr-prom-"
+	EphemeralPromPrefix    = "egrc-prom-"
 )
 
 // EphemeralPrometheusManager handles on-demand lifecycle of a temporary Prometheus instance.
@@ -49,6 +49,18 @@ func (m *EphemeralPrometheusManager) EnsureEphemeralPrometheus(
 	scrapeInterval := rollout.Spec.Analysis.EphemeralPrometheus.ScrapeInterval
 	if scrapeInterval == "" {
 		scrapeInterval = "5s"
+	}
+
+	// Discover existing envoy proxy pods if targetPodIPs is empty
+	if len(targetPodIPs) == 0 {
+		podList := &corev1.PodList{}
+		if err := m.client.List(ctx, podList, client.InNamespace(ns), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+			for _, p := range podList.Items {
+				if p.Status.PodIP != "" {
+					targetPodIPs = append(targetPodIPs, p.Status.PodIP)
+				}
+			}
+		}
 	}
 
 	// 1. Create or Update ConfigMap
