@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -129,7 +130,20 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, nil
 	case rolloutv1alpha1.PhasePaused:
-		// Suspended states: DO NOT auto-retry without explicit operator resume
+		// If paused flag was cleared, resume rollout!
+		if !rollout.Spec.Control.Paused {
+			logger.Info("Rollout resumed by operator")
+			if rollout.Status.CurrentStep > 0 {
+				rollout.Status.Phase = rolloutv1alpha1.PhaseCanaryRunning
+				rollout.Status.Message = fmt.Sprintf("Rollout resumed at Step %d", rollout.Status.CurrentStep)
+			} else {
+				rollout.Status.Phase = rolloutv1alpha1.PhasePending
+				rollout.Status.Message = "Rollout resumed"
+			}
+			rollout.Status.LastUpdateTime = metav1.Now()
+			_ = r.Status().Update(ctx, rollout)
+			return ctrl.Result{Requeue: true}, nil
+		}
 		return ctrl.Result{}, nil
 	default:
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
@@ -193,26 +207,31 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 		targetNamespace = "envoy-gateway-system"
 	}
 
-	// [Pre-Upgrade Metric Guardrail]
-	// Spawn and start Ephemeral Prometheus BEFORE CRD or Control Plane upgrades are applied.
-	// This ensures we continuously monitor baseline traffic and detect any CRD schema/version incompatibility errors.
-	if rollout.Spec.Analysis.EphemeralPrometheus.Enabled {
-		ephemeralURL, err := r.PromManager.EnsureEphemeralPrometheus(ctx, rollout, nil)
-		if err != nil {
-			logger.Error(err, "Failed to spawn pre-upgrade ephemeral prometheus")
-		} else {
-			rollout.Status.EphemeralPrometheusURL = ephemeralURL
-			logger.Info("Pre-upgrade ephemeral prometheus active prior to CRD synchronization", "url", ephemeralURL)
+	// [Pre-Upgrade Metric Guardrail & Control Plane Sync]
+	// Run only once upon initial transition into deploying phase to avoid 2-second repeat loops!
+	if rollout.Status.Phase == rolloutv1alpha1.PhaseDeploying {
+		if rollout.Spec.Analysis.EphemeralPrometheus.Enabled {
+			ephemeralURL, err := r.PromManager.EnsureEphemeralPrometheus(ctx, rollout, nil)
+			if err != nil {
+				logger.Error(err, "Failed to spawn pre-upgrade ephemeral prometheus")
+			} else {
+				rollout.Status.EphemeralPrometheusURL = ephemeralURL
+				logger.Info("Pre-upgrade ephemeral prometheus active prior to CRD synchronization", "url", ephemeralURL)
+			}
 		}
-	}
 
-	_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, targetVersion)
+		// Synchronize CRDs and Envoy Gateway control plane deployment (keep data plane stable)
+		_ = r.syncControlPlane(ctx, rollout, targetNamespace, targetVersion)
+		rollout.Status.Phase = rolloutv1alpha1.PhaseCanaryRunning
+	}
 
 	stepIdx := rollout.Status.CurrentStep - 1
 	if stepIdx < 0 || stepIdx >= len(rollout.Spec.Strategy.Steps) {
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
 		rollout.Status.CurrentVersion = targetVersion
 		rollout.Status.Message = "Rollout successfully completed across all nodes"
+		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, targetVersion)
+		r.deleteCanaryPods(ctx, targetNamespace)
 		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
 		_ = r.Status().Update(ctx, rollout)
 		return ctrl.Result{}, nil
@@ -224,7 +243,6 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	// Build node status list
 	nodeStatuses := make([]rolloutv1alpha1.NodeRolloutStatus, 0)
 	canaryNodeNames := make([]string, 0)
-	canaryPodIPs := make([]string, 0)
 
 	for i := 0; i < totalNodes; i++ {
 		nodeName := fmt.Sprintf("ingress-lb-node-%02d", i+1)
@@ -250,7 +268,6 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 			status.CanaryVersion = targetVersion
 			status.ActiveSessions = 120 + (i * 15)
 			canaryNodeNames = append(canaryNodeNames, nodeName)
-			canaryPodIPs = append(canaryPodIPs, nodeIP)
 		} else {
 			status.Phase = "Stable"
 			status.ActiveSessions = 250 + (i * 20)
@@ -258,8 +275,50 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 		nodeStatuses = append(nodeStatuses, status)
 	}
 
-	// Ensure Ephemeral Prometheus if enabled
-	if rollout.Spec.Analysis.EphemeralPrometheus.Enabled {
+	// [Overlapping Canary Pod Strategy - Plan A]
+	// Spawn an overlapping canary pod directly on each canary node without touching the stable pod.
+	// This ensures at least one Ready pod always exists on the node so CSP LoadBalancer with
+	// externalTrafficPolicy: Local never encounters connection refused or RST packets.
+	allCanaryPodsReady := true
+	canaryPodIPs := make([]string, 0)
+	readyCanaryPods := make([]*corev1.Pod, 0)
+	unreadyNode := ""
+
+	for _, cNode := range canaryNodeNames {
+		pod, err := r.ensureCanaryPod(ctx, rollout, targetNamespace, cNode, targetVersion)
+		if err != nil {
+			logger.Error(err, "Failed to ensure overlapping canary pod", "node", cNode)
+			allCanaryPodsReady = false
+			unreadyNode = cNode
+			continue
+		}
+		if isPodReady(pod) {
+			canaryPodIPs = append(canaryPodIPs, pod.Status.PodIP)
+			readyCanaryPods = append(readyCanaryPods, pod)
+		} else {
+			allCanaryPodsReady = false
+			unreadyNode = cNode
+		}
+	}
+
+	// If canary pods are still starting or pulling images, wait for them to become Ready
+	if !allCanaryPodsReady {
+		rollout.Status.Nodes = nodeStatuses
+		rollout.Status.Phase = rolloutv1alpha1.PhaseCanaryRunning
+		rollout.Status.Message = fmt.Sprintf("Starting overlapping canary pod on node %s (waiting for Ready)", unreadyNode)
+		rollout.Status.LastUpdateTime = metav1.Now()
+		_ = r.Status().Update(ctx, rollout)
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
+	// Register the Ready overlapping canary pods with custom EndpointSlice for the envoy-proxy Service!
+	// This ensures zero packet loss and seamless load distribution without changing DaemonSet selector.
+	if err := r.ensureCanaryEndpointSlice(ctx, targetNamespace, readyCanaryPods); err != nil {
+		logger.Error(err, "Failed to update canary EndpointSlice")
+	}
+
+	// Ensure Ephemeral Prometheus monitors the overlapping canary pods
+	if rollout.Spec.Analysis.EphemeralPrometheus.Enabled && len(canaryPodIPs) > 0 {
 		ephemeralURL, err := r.PromManager.EnsureEphemeralPrometheus(ctx, rollout, canaryPodIPs)
 		if err != nil {
 			logger.Error(err, "Failed to spawn ephemeral prometheus")
@@ -270,7 +329,7 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 
 	rollout.Status.Nodes = nodeStatuses
 	rollout.Status.Phase = rolloutv1alpha1.PhaseObserving
-	rollout.Status.Message = fmt.Sprintf("Observing Step %d/%d (%s)", rollout.Status.CurrentStep, rollout.Status.TotalSteps, step.Nodes)
+	rollout.Status.Message = fmt.Sprintf("Overlapping canary pod Ready on %d node(s). Observing Step %d/%d (%s)", len(canaryNodeNames), rollout.Status.CurrentStep, rollout.Status.TotalSteps, step.Nodes)
 	rollout.Status.LastUpdateTime = metav1.Now()
 
 	// Store step start time
@@ -314,6 +373,24 @@ func (r *EnvoyGatewayRolloutReconciler) handleObserving(ctx context.Context, rol
 	for _, n := range rollout.Status.Nodes {
 		if n.Phase == "Canary" {
 			canaryNodes = append(canaryNodes, n.NodeName)
+			if n.NodeIP != "" {
+				canaryNodes = append(canaryNodes, n.NodeIP)
+			}
+		}
+	}
+
+	// Also append envoy-proxy pod IPs running on canary nodes
+	activeEnvoyPods := &corev1.PodList{}
+	if err := r.List(ctx, activeEnvoyPods, client.InNamespace(rollout.Spec.TargetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+		for _, pod := range activeEnvoyPods.Items {
+			if pod.Status.PodIP != "" {
+				for _, cn := range canaryNodes {
+					if pod.Spec.NodeName == cn {
+						canaryNodes = append(canaryNodes, pod.Status.PodIP)
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -382,23 +459,27 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		targetVersion = rollout.Spec.Version
 	}
 
-	// Trigger Envoy Admin API listener drain on old instances
+	// Trigger Envoy Admin API listener drain on OLD stable instances on canary nodes.
+	// Since the overlapping canary pod is already Ready and handling traffic on the node,
+	// new connections seamlessly shift to the canary pod without dropping a single packet.
+	podList := &corev1.PodList{}
+	_ = r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"})
+
 	for i := range rollout.Status.Nodes {
 		node := &rollout.Status.Nodes[i]
 		if node.Phase == "Canary" {
 			node.Phase = "Draining"
 			node.DrainProgress = 50
-			// Call /drain_listeners?inboundonly
-			_ = r.AdminClient.DrainListeners(ctx, node.NodeIP, 19001)
 
-			// Gracefully rotate the envoy-proxy pod on this node to trigger DaemonSet pod recreation with new image
-			podList := &corev1.PodList{}
-			if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
-				for _, pod := range podList.Items {
-					if pod.Spec.NodeName == node.NodeName {
-						logger.Info("Rotating envoy-proxy pod on node after drain", "node", node.NodeName, "pod", pod.Name)
-						_ = r.Delete(ctx, &pod)
+			for _, pod := range podList.Items {
+				// Target older stable pod (not the overlapping canary pod)
+				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" {
+					logger.Info("Draining older stable envoy-proxy pod on canary node", "node", node.NodeName, "pod", pod.Name, "ip", pod.Status.PodIP)
+					if pod.Status.PodIP != "" {
+						_ = r.AdminClient.DrainListeners(ctx, pod.Status.PodIP, 19001)
 					}
+					// Gracefully delete the older stable pod; the overlapping canary pod is already serving!
+					_ = r.Delete(ctx, &pod)
 				}
 			}
 		}
@@ -422,7 +503,10 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 			rollout.Status.Nodes[i].CanaryVersion = ""
 			rollout.Status.Nodes[i].DrainProgress = 100
 		}
-		_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, completedVer)
+		// Synchronize the base DaemonSet to completedVer
+		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, completedVer)
+		// Clean up temporary overlapping canary pods
+		r.deleteCanaryPods(ctx, targetNamespace)
 		// Clean up temporary Prometheus
 		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
 	}
@@ -455,8 +539,11 @@ func (r *EnvoyGatewayRolloutReconciler) handleAbort(ctx context.Context, rollout
 		logger.Error(err, "Failed to update spec during abort")
 	}
 
-	// 2. Rollback workloads to stable version
-	_ = r.syncWorkloadImages(ctx, rollout, targetNamespace, stableVersion)
+	// 2. Clean up overlapping canary pods immediately!
+	// The stable daemonset pod on the node continues serving with zero downtime.
+	r.deleteCanaryPods(ctx, targetNamespace)
+	_ = r.syncControlPlane(ctx, rollout, targetNamespace, stableVersion)
+	_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, stableVersion)
 
 	// 3. Update status to Aborted terminal state
 	rollout.Status.Phase = rolloutv1alpha1.PhaseAborted
@@ -629,9 +716,8 @@ func stringMapToInterfaceMap(m map[string]string) map[string]interface{} {
 	return res
 }
 
-// syncWorkloadImages ensures the underlying Kubernetes Deployment (Control Plane)
-// and DaemonSet (Data Plane) actually transition their container images to the target version.
-func (r *EnvoyGatewayRolloutReconciler) syncWorkloadImages(
+// syncControlPlane synchronizes CRDs and updates the Envoy Gateway Control Plane Deployment.
+func (r *EnvoyGatewayRolloutReconciler) syncControlPlane(
 	ctx context.Context,
 	rollout *rolloutv1alpha1.EnvoyGatewayRollout,
 	targetNamespace string,
@@ -668,10 +754,19 @@ func (r *EnvoyGatewayRolloutReconciler) syncWorkloadImages(
 			}
 		}
 	}
+	return nil
+}
 
-	// 2. Update Envoy Proxy DataPlane DaemonSet
+// syncDataPlaneDaemonSet updates the base envoy-proxy DaemonSet to targetVersion upon full rollout completion.
+func (r *EnvoyGatewayRolloutReconciler) syncDataPlaneDaemonSet(
+	ctx context.Context,
+	targetNamespace string,
+	targetVersion string,
+) error {
+	logger := log.FromContext(ctx)
+
 	ds := &appsv1.DaemonSet{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, ds)
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, ds)
 	if err == nil {
 		updated := false
 		targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
@@ -696,20 +791,228 @@ func (r *EnvoyGatewayRolloutReconciler) syncWorkloadImages(
 		if updated {
 			if err := r.Update(ctx, ds); err != nil {
 				logger.Error(err, "Failed to update envoy-proxy daemonset images")
-			} else {
-				// Rotate running pods so they immediately recreate with new template
-				podList := &corev1.PodList{}
-				if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
-					for _, pod := range podList.Items {
-						logger.Info("Rotating older envoy-proxy pod for new image", "pod", pod.Name)
-						_ = r.Delete(ctx, &pod)
-					}
-				}
 			}
 		}
 	}
-
 	return nil
+}
+
+// ensureCanaryPod creates or retrieves an overlapping canary pod on the specified node.
+// This pod runs with targetVersion images while the stable daemonset pod continues serving on the same node.
+func (r *EnvoyGatewayRolloutReconciler) ensureCanaryPod(
+	ctx context.Context,
+	rollout *rolloutv1alpha1.EnvoyGatewayRollout,
+	targetNamespace string,
+	nodeName string,
+	targetVersion string,
+) (*corev1.Pod, error) {
+	podName := fmt.Sprintf("envoy-proxy-canary-%s", sanitizeResourceName(nodeName))
+
+	existingPod := &corev1.Pod{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: podName}, existingPod)
+	if err == nil {
+		return existingPod, nil
+	}
+	if !errors.IsNotFound(err) {
+		return nil, err
+	}
+
+	// Fetch base DaemonSet template
+	ds := &appsv1.DaemonSet{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, ds); err != nil {
+		return nil, fmt.Errorf("failed to get base envoy-proxy daemonset: %w", err)
+	}
+
+	targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", targetVersion)
+	targetEnvoyImage := "docker.io/envoyproxy/envoy:distroless-v1.39.0"
+	if strings.HasPrefix(targetVersion, "v1.2") {
+		targetEnvoyImage = "docker.io/envoyproxy/envoy:distroless-v1.32.3"
+	}
+
+	podSpec := *ds.Spec.Template.Spec.DeepCopy()
+	podSpec.NodeName = nodeName // Explicitly schedule on target canary node
+
+	for i := range podSpec.Containers {
+		c := &podSpec.Containers[i]
+		if c.Name == "envoy" {
+			c.Image = targetEnvoyImage
+		}
+		if c.Name == "shutdown-manager" {
+			c.Image = targetGatewayImage
+		}
+	}
+
+	ownerRef := metav1.OwnerReference{
+		APIVersion: rollout.APIVersion,
+		Kind:       rollout.Kind,
+		Name:       rollout.Name,
+		UID:        rollout.UID,
+	}
+
+	labels := make(map[string]string)
+	for k, v := range ds.Spec.Template.Labels {
+		labels[k] = v
+	}
+	// CRITICAL FIX: Do NOT match the base DaemonSet's exact selector!
+	// Kubernetes daemonset-controller monitors spec.selector matches per node,
+	// and if multiple pods on the same node match, daemonset-controller IMMEDIATELY
+	// deletes the surplus pod (causing the Create -> Terminate loop).
+	// By changing managed-by and component labels, daemonset-controller leaves our canary pod alone!
+	labels["app.kubernetes.io/managed-by"] = "envoy-gateway-rollout-controller"
+	labels["app.kubernetes.io/component"] = "canary-proxy"
+	labels["rollout.envoyproxy.io/canary"] = "true"
+	labels["rollout.envoyproxy.io/node"] = nodeName
+
+	canaryPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            podName,
+			Namespace:       targetNamespace,
+			Labels:          labels,
+			Annotations:     ds.Spec.Template.Annotations,
+			OwnerReferences: []metav1.OwnerReference{ownerRef},
+		},
+		Spec: podSpec,
+	}
+
+	if err := r.Create(ctx, canaryPod); err != nil {
+		return nil, fmt.Errorf("failed to create overlapping canary pod on node %s: %w", nodeName, err)
+	}
+
+	return canaryPod, nil
+}
+
+// ensureCanaryEndpointSlice creates or updates a custom EndpointSlice attached to the envoy-proxy Service.
+// Kube-proxy aggregates all EndpointSlices for the service, routing NodePort traffic to the overlapping canary pod.
+func (r *EnvoyGatewayRolloutReconciler) ensureCanaryEndpointSlice(
+	ctx context.Context,
+	targetNamespace string,
+	canaryPods []*corev1.Pod,
+) error {
+	sliceName := "envoy-proxy-canary"
+
+	var endpoints []discoveryv1.Endpoint
+	for _, pod := range canaryPods {
+		if pod != nil && pod.Status.PodIP != "" && isPodReady(pod) {
+			ready := true
+			serving := true
+			terminating := false
+			nodeName := pod.Spec.NodeName
+			endpoints = append(endpoints, discoveryv1.Endpoint{
+				Addresses: []string{pod.Status.PodIP},
+				Conditions: discoveryv1.EndpointConditions{
+					Ready:       &ready,
+					Serving:     &serving,
+					Terminating: &terminating,
+				},
+				NodeName: &nodeName,
+				TargetRef: &corev1.ObjectReference{
+					Kind:      "Pod",
+					Name:      pod.Name,
+					Namespace: pod.Namespace,
+					UID:       pod.UID,
+				},
+			})
+		}
+	}
+
+	if len(endpoints) == 0 {
+		slice := &discoveryv1.EndpointSlice{}
+		err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: sliceName}, slice)
+		if err == nil {
+			_ = r.Delete(ctx, slice)
+		}
+		return nil
+	}
+
+	var slicePorts []discoveryv1.EndpointPort
+	svc := &corev1.Service{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: "envoy-proxy"}, svc); err == nil && len(svc.Spec.Ports) > 0 {
+		for _, sp := range svc.Spec.Ports {
+			portNum := sp.TargetPort.IntVal
+			if portNum == 0 {
+				portNum = sp.Port
+			}
+			pName := sp.Name
+			proto := sp.Protocol
+			slicePorts = append(slicePorts, discoveryv1.EndpointPort{
+				Name:     &pName,
+				Port:     &portNum,
+				Protocol: &proto,
+			})
+		}
+	} else {
+		tcpProto := corev1.ProtocolTCP
+		portHttp := int32(10080)
+		nameHttp := "http-80"
+		portHttps := int32(10443)
+		nameHttps := "https-443"
+		slicePorts = []discoveryv1.EndpointPort{
+			{Name: &nameHttp, Port: &portHttp, Protocol: &tcpProto},
+			{Name: &nameHttps, Port: &portHttps, Protocol: &tcpProto},
+		}
+	}
+
+	slice := &discoveryv1.EndpointSlice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sliceName,
+			Namespace: targetNamespace,
+			Labels: map[string]string{
+				"kubernetes.io/service-name":             "envoy-proxy",
+				"endpointslice.kubernetes.io/managed-by": "envoy-gateway-rollout-controller",
+			},
+		},
+		AddressType: discoveryv1.AddressTypeIPv4,
+		Endpoints:   endpoints,
+		Ports:       slicePorts,
+	}
+
+	existingSlice := &discoveryv1.EndpointSlice{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: targetNamespace, Name: sliceName}, existingSlice)
+	if errors.IsNotFound(err) {
+		return r.Create(ctx, slice)
+	} else if err == nil {
+		existingSlice.Endpoints = slice.Endpoints
+		existingSlice.Ports = slice.Ports
+		return r.Update(ctx, existingSlice)
+	}
+	return err
+}
+
+// deleteCanaryPods cleans up all overlapping canary pods and their EndpointSlice.
+func (r *EnvoyGatewayRolloutReconciler) deleteCanaryPods(ctx context.Context, targetNamespace string) {
+	logger := log.FromContext(ctx)
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"rollout.envoyproxy.io/canary": "true"}); err == nil {
+		for _, pod := range podList.Items {
+			logger.Info("Cleaning up overlapping canary pod", "pod", pod.Name, "node", pod.Spec.NodeName)
+			_ = r.Delete(ctx, &pod)
+		}
+	}
+	_ = r.ensureCanaryEndpointSlice(ctx, targetNamespace, nil)
+}
+
+// isPodReady checks whether a pod has passed its readiness probes and is currently in Ready condition.
+func isPodReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeResourceName cleanses node names for use in Kubernetes pod names.
+func sanitizeResourceName(name string) string {
+	res := strings.ToLower(name)
+	res = strings.ReplaceAll(res, ".", "-")
+	res = strings.ReplaceAll(res, "_", "-")
+	if len(res) > 35 {
+		res = res[:35]
+	}
+	return strings.Trim(res, "-")
 }
 
 // imageEquals normalizes docker registry prefixes to avoid false positive diffs.

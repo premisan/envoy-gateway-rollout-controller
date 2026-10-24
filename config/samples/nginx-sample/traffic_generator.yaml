@@ -29,7 +29,7 @@ spec:
           FAIL=0
           while true; do
             TOTAL=$((TOTAL + 1))
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 "$TARGET" || echo "ERR")
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: nginx.local" --connect-timeout 2 --max-time 3 "$TARGET" || echo "ERR")
             if [ "$CODE" = "200" ]; then
               SUCCESS=$((SUCCESS + 1))
             else

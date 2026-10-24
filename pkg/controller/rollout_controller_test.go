@@ -58,3 +58,21 @@ func TestParseNodeCount(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeResourceName(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"Node-01", "node-01"},
+		{"ingress.worker.node_01", "ingress-worker-node-01"},
+		{"desktop-control-plane", "desktop-control-plane"},
+	}
+
+	for _, c := range cases {
+		got := sanitizeResourceName(c.input)
+		if got != c.expected {
+			t.Errorf("sanitizeResourceName(%q) = %q, expected %q", c.input, got, c.expected)
+		}
+	}
+}

@@ -62,7 +62,33 @@
 
 ---
 
-## 3. Declarative Specification (CRD: `EnvoyGatewayRollout`)
+## 3. Quick Start: Deploying Controller in Kubernetes (Single Command)
+
+You can deploy the entire EGRC stack (Namespace, CRD, RBAC, Controller Manager, and embedded Web Dashboard) into your Kubernetes cluster with a **single command**:
+
+```bash
+# Option A: Remote deployment directly via GitHub
+kubectl apply -f https://raw.githubusercontent.com/premisan/envoy-gateway-rollout-controller/main/deploy/install.yaml
+
+# Option B: Local deployment from cloned repository
+kubectl apply -f deploy/install.yaml
+```
+
+Wait for the controller deployment to be ready:
+```bash
+kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
+```
+
+### Accessing the Web UI Dashboard
+Forward port 80 of the controller Service to your local workstation:
+```bash
+kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
+```
+Open **`http://localhost:8080`** in your browser to access the real-time node topology grid, metric guardrails, and rollout controls.
+
+---
+
+## 4. Declarative Specification (CRD: `EnvoyGatewayRollout`)
 
 Short name: **`egrc`** (`kubectl get egrc -n envoy-gateway-system`)
 
@@ -161,16 +187,16 @@ spec:
 
 ---
 
-## 4. GitOps & ArgoCD Integration
+## 5. GitOps & ArgoCD Integration
 
-### 4.1 Custom Lua Health Check (`argocd-cm`)
+### 5.1 Custom Lua Health Check (`argocd-cm`)
 Renders standard ArgoCD health badges (`Healthy`, `Progressing`, `Suspended`, `Degraded`) showing step progression and remaining observation countdown:
 
 ```bash
 kubectl patch cm argocd-cm -n argocd --patch-file config/argocd/argocd-cm-patch.yaml
 ```
 
-### 4.2 Prevent UI Control Conflicts (`ignoreDifferences`)
+### 5.2 Prevent UI Control Conflicts (`ignoreDifferences`)
 Ensures manual operator actions (pause, force promote, instant abort) via the Web UI are not overridden by ArgoCD automated self-healing:
 
 ```yaml
@@ -189,7 +215,7 @@ spec:
 
 ---
 
-## 5. Built-in Web Dashboard
+## 6. Built-in Web Dashboard
 
 The controller embeds a lightweight React frontend served on port 8080:
 
@@ -206,9 +232,9 @@ The controller embeds a lightweight React frontend served on port 8080:
 
 ---
 
-## 6. Getting Started & Installation
+## 7. Development & Advanced Installation
 
-### 6.1 Local Build
+### 7.1 Local Build
 ```bash
 # Build frontend UI and Go binary
 make build
@@ -217,29 +243,29 @@ make build
 make test
 ```
 
-### 6.2 Docker Image
+### 7.2 Docker Image
 Published official container image:
 ```bash
-docker pull premisan0/envoy-gateway-rollout-controller:latest
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.8
 ```
 
-### 6.3 Deploying the Controller Inside Kubernetes (In-Cluster)
+### 7.3 Step-by-Step Manual Deployment (Alternative to Single-Command)
 
-The controller can run directly inside the target Kubernetes cluster as a standalone deployment along with its embedded real-time Web UI.
+If you prefer to inspect and deploy individual manifests manually instead of using `deploy/install.yaml`:
 
 #### Step 1: Register CRD & Cluster RBAC
 ```bash
 # Register EnvoyGatewayRollout CustomResourceDefinition
 kubectl apply -f config/crd/rollout.envoyproxy.io_envoygatewayrollouts.yaml
 
-# Deploy ServiceAccount, ClusterRole, and ClusterRoleBinding (includes admissionregistration permissions for Gateway API CRDs)
+# Deploy ServiceAccount, ClusterRole, and ClusterRoleBinding (includes admissionregistration and endpointslices permissions)
 kubectl apply -f config/rbac/service_account.yaml
 kubectl apply -f config/rbac/role.yaml
 kubectl apply -f config/rbac/role_binding.yaml
 ```
 
 #### Step 2: Deploy Controller Manager & Unified Service
-Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.5` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
+Deploy the controller deployment using pre-built image `premisan0/envoy-gateway-rollout-controller:v1.0.8` (packaged with `helm`, `kubectl`, and the React Web UI) and the unified Service:
 ```bash
 # Deploy Controller Manager
 kubectl apply -f config/manager/deployment.yaml
@@ -251,14 +277,7 @@ kubectl apply -f config/manager/service.yaml
 kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
 ```
 
-#### Step 3: Access Web UI Dashboard
-Forward port 80 of the controller Service to your local machine:
-```bash
-kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
-```
-Open **`http://localhost:8080`** in your browser to view the real-time node topology, 4xx/5xx metric guardrails, and control buttons.
-
-#### Step 4: Create Rollout Resource
+#### Step 3: Create Sample Rollout Resource
 ```bash
 # Deploy sample TLS secret
 kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
@@ -271,7 +290,7 @@ kubectl get egrc -n envoy-gateway-system -w
 kubectl describe egrc eg -n envoy-gateway-system
 ```
 
-#### Step 5: Check Controller Logs
+#### Step 4: Check Controller Logs
 ```bash
 kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

@@ -21,7 +21,7 @@ export const Navbar: React.FC<Props> = ({ connected }) => {
             {t('appTitle')}
           </h1>
           <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-sky-700 font-mono font-bold">
-            EGRC v1.0.5
+            EGRC v1.0.8
           </span>
         </div>
       </div>

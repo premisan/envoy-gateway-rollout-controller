@@ -49,6 +49,11 @@ rules:
     resources: ["poddisruptionbudgets"]
     verbs: ["*"]
 
+  # Discovery (EndpointSlice management for zero-downtime overlapping canary pods)
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["*"]
+
   # Coordination
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]

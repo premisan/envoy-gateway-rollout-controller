@@ -62,7 +62,33 @@
 
 ---
 
-## 3. 선언적 명세 (CRD: `EnvoyGatewayRollout`)
+## 3. 빠른 시작: 쿠버네티스 클러스터 내부 배포 (단일 커맨드)
+
+EGRC의 모든 구성 요소(Namespace, CRD, RBAC, 컨트롤러 매니저 및 내장 웹 UI 대시보드)를 **단 한 줄의 명령어**로 쿠버네티스 클러스터에 즉시 배포할 수 있습니다:
+
+```bash
+# 방법 A: GitHub 원격 매니페스트 기준 단일 커맨드 배포
+kubectl apply -f https://raw.githubusercontent.com/premisan/envoy-gateway-rollout-controller/main/deploy/install.yaml
+
+# 방법 B: 로컬 저장소 클론 상태에서 배포
+kubectl apply -f deploy/install.yaml
+```
+
+컨트롤러 파드가 정상 준비될 때까지 대기합니다:
+```bash
+kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
+```
+
+### 웹 UI 대시보드 접속
+컨트롤러 Service를 로컬 포트로 포트포워딩하여 브라우저에서 대시보드에 접속합니다:
+```bash
+kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
+```
+웹 브라우저에서 **`http://localhost:8080`**으로 접속하면 실시간 노드 토폴로지 그리드 뷰, 4xx/5xx 메트릭 가드레일 모니터링 및 카나리 제어(일시정지, 재개, 즉시 승급, 롤백) 버튼을 즉시 사용할 수 있습니다.
+
+---
+
+## 4. 선언적 명세 (CRD: `EnvoyGatewayRollout`)
 
 ArgoCD Git 저장소에 아래 매니페스트만 선언해 두면 전체 라이프사이클이 관리됩니다:
 
@@ -161,9 +187,9 @@ spec:
 
 ---
 
-## 4. ArgoCD 연동 가이드 (GitOps)
+## 5. ArgoCD 연동 가이드 (GitOps)
 
-### 4.1 Custom Health Check 등록 (`argocd-cm`)
+### 5.1 Custom Health Check 등록 (`argocd-cm`)
 ArgoCD UI에서 카나리 롤아웃의 진행률, 대기 시간, 단계별 상태가 표준 하트 아이콘(`Healthy`, `Progressing`, `Suspended`, `Degraded`)으로 표시됩니다.
 
 [config/argocd/argocd-cm-patch.yaml](file:///Users/premisan/github/envoy-gateway-rollout-controller/config/argocd/argocd-cm-patch.yaml)을 ArgoCD ConfigMap에 적용합니다:
@@ -171,7 +197,7 @@ ArgoCD UI에서 카나리 롤아웃의 진행률, 대기 시간, 단계별 상�
 kubectl patch cm argocd-cm -n argocd --patch-file config/argocd/argocd-cm-patch.yaml
 ```
 
-### 4.2 UI 수동 제어와 ArgoCD Self-Heal 충돌 방지 (`ignoreDifferences`)
+### 5.2 UI 수동 제어와 ArgoCD Self-Heal 충돌 방지 (`ignoreDifferences`)
 운영자가 웹 UI에서 긴급하게 [일시정지]나 [수동 롤백]을 눌렀을 때 ArgoCD가 이를 강제로 원복시키는 것을 방지하기 위해 `spec.control`을 무시하도록 설정합니다:
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -189,7 +215,7 @@ spec:
 
 ---
 
-## 5. 실시간 웹 UI 대시보드
+## 6. 실시간 웹 UI 대시보드
 
 컨트롤러 바이너리는 React 프론트엔드가 내장되어 있어 추가적인 웹 서버 없이 바로 브라우저에서 대시보드를 사용할 수 있습니다:
 
@@ -206,9 +232,9 @@ spec:
 
 ---
 
-## 6. 빌드 및 배포
+## 7. 개발 및 세부 배포 가이드
 
-### 6.1 로컬 빌드
+### 7.1 로컬 빌드
 ```bash
 # Frontend UI 및 Go Controller 빌드
 make build
@@ -217,28 +243,28 @@ make build
 make test
 ```
 
-### 6.2 Docker 컨테이너 이미지 빌드
+### 7.2 Docker 컨테이너 이미지 빌드
 ```bash
-make docker-build
+docker pull premisan0/envoy-gateway-rollout-controller:v1.0.8
 ```
 
-### 6.3 쿠버네티스 클러스터 내부 배포 (In-Cluster)
+### 7.3 단계별 수동 배포 가이드 (단일 커맨드 대신 개별 매니페스트 확인 시)
 
-컨트롤러는 경량 React 대시보드와 통합된 단일 바이너리로 쿠버네티스 클러스터 내부에 배포되어 동작합니다.
+`deploy/install.yaml` 단일 커맨드 대신 컴포넌트별 매니페스트를 직접 검토하고 개별 배포할 경우:
 
 #### 1단계: CRD 및 클러스터 RBAC 적용
 ```bash
 # EnvoyGatewayRollout 커스텀 리소스 정의(CRD) 등록
 kubectl apply -f config/crd/rollout.envoyproxy.io_envoygatewayrollouts.yaml
 
-# ServiceAccount, ClusterRole, ClusterRoleBinding 생성 (Gateway API CRD 관리를 위한 admissionregistration 권한 포함)
+# ServiceAccount, ClusterRole, ClusterRoleBinding 생성 (Gateway API CRD 관리 권한 및 EndpointSlice 제어 권한 포함)
 kubectl apply -f config/rbac/service_account.yaml
 kubectl apply -f config/rbac/role.yaml
 kubectl apply -f config/rbac/role_binding.yaml
 ```
 
 #### 2단계: 컨트롤러 매니저 및 통합 Service 배포
-`helm`, `kubectl`, React 웹 UI가 내장된 공식 이미지(`premisan0/envoy-gateway-rollout-controller:v1.0.5`) 기반의 Deployment와 단일 Service(`envoy-gateway-rollout-controller`)를 배포합니다.
+`helm`, `kubectl`, React 웹 UI가 내장된 공식 이미지(`premisan0/envoy-gateway-rollout-controller:v1.0.8`) 기반의 Deployment와 단일 Service(`envoy-gateway-rollout-controller`)를 배포합니다.
 ```bash
 # 컨트롤러 Deployment 배포
 kubectl apply -f config/manager/deployment.yaml
@@ -250,14 +276,7 @@ kubectl apply -f config/manager/service.yaml
 kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gateway-system
 ```
 
-#### 3단계: 웹 UI 대시보드 접속
-컨트롤러 Service를 로컬 포트로 포트포워딩하여 브라우저에서 대시보드에 접속합니다:
-```bash
-kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
-```
-웹 브라우저에서 **`http://localhost:8080`**으로 접속하면 실시간 노드 토폴로지, 4xx/5xx 메트릭 가드레일 모니터링, 버전 업그레이드 모달 및 수동 제어(일시정지, 재개, 즉시 승급, 롤백) 버튼을 사용할 수 있습니다.
-
-#### 4단계: 샘플 Rollout 리소스 생성
+#### 3단계: 샘플 Rollout 리소스 생성
 ```bash
 # 샘플 TLS Secret 배포
 kubectl apply -f config/samples/envoy-gateway/tls_secret.yaml
@@ -270,7 +289,7 @@ kubectl get egrc -n envoy-gateway-system -w
 kubectl describe egrc eg -n envoy-gateway-system
 ```
 
-#### 5단계: 컨트롤러 로그 모니터링
+#### 4단계: 컨트롤러 로그 모니터링
 ```bash
 kubectl logs -n envoy-gateway-system -l app.kubernetes.io/name=envoy-gateway-rollout-controller -f
 ```

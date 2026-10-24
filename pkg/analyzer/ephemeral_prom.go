@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -114,6 +115,8 @@ scrape_configs:
 		return "", err
 	}
 
+	configHash := fmt.Sprintf("%x", sha256.Sum256([]byte(configContent)))
+
 	// 2. Create Deployment
 	replicas := int32(1)
 	deploy := &appsv1.Deployment{
@@ -137,6 +140,9 @@ scrape_configs:
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"app.kubernetes.io/name": baseName,
+					},
+					Annotations: map[string]string{
+						"rollout.envoyproxy.io/config-hash": configHash,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -183,7 +189,15 @@ scrape_configs:
 		if err := m.client.Create(ctx, deploy); err != nil {
 			return "", fmt.Errorf("failed to create ephemeral prometheus deployment: %w", err)
 		}
-	} else if err != nil {
+	} else if err == nil {
+		if existingDeploy.Spec.Template.Annotations == nil {
+			existingDeploy.Spec.Template.Annotations = make(map[string]string)
+		}
+		if existingDeploy.Spec.Template.Annotations["rollout.envoyproxy.io/config-hash"] != configHash {
+			existingDeploy.Spec.Template.Annotations["rollout.envoyproxy.io/config-hash"] = configHash
+			_ = m.client.Update(ctx, existingDeploy)
+		}
+	} else {
 		return "", err
 	}
 

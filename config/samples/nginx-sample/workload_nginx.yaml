@@ -55,6 +55,9 @@ spec:
   parentRefs:
   - name: eg
     namespace: envoy-gateway-system
+  hostnames:
+  - "nginx.local"
+  - "nginx.example.com"
   rules:
   - matches:
     - path:
