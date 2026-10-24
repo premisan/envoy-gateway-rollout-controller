@@ -7,7 +7,7 @@
 [![ArgoCD Ready](https://img.shields.io/badge/ArgoCD-GitOps%20Compatible-orange?logo=argo)](https://argoproj.github.io/cd/)
 [![Docker Image](https://img.shields.io/badge/Docker%20Hub-premisan0%2Fenvoy--gateway--rollout--controller-blue?logo=docker)](https://hub.docker.com/r/premisan0/envoy-gateway-rollout-controller)
 
-**EGRC(Envoy Gateway Rollout Controller)**는 Kubernetes 환경에서 Envoy Gateway의 컨트롤 플레인 및 데이터 플레인(DaemonSet)을 노드 단위로 점진 배포하고 모니터링하는 카나리 롤아웃 컨트롤러입니다.
+**EGRC(Envoy Gateway Rollout Controller)는** Kubernetes 환경에서 Envoy Gateway의 컨트롤 플레인 및 데이터 플레인(DaemonSet)을 노드 단위로 점진 배포하고 모니터링하는 카나리 롤아웃 컨트롤러입니다.
 
 ---
 
@@ -85,7 +85,7 @@ kubectl rollout status deployment/envoy-gateway-rollout-controller -n envoy-gate
 ```bash
 kubectl port-forward -n envoy-gateway-system svc/envoy-gateway-rollout-controller 8080:80
 ```
-브라우저에서 **`http://localhost:8080`**으로 접속하면 실시간 노드 토폴로지, 메트릭 모니터링 및 카나리 제어 기능을 바로 사용할 수 있습니다.
+브라우저에서 **[http://localhost:8080](http://localhost:8080)** 으로 접속하면 실시간 노드 토폴로지, 메트릭 모니터링 및 카나리 제어 기능을 바로 사용할 수 있습니다.
 
 ---
 
