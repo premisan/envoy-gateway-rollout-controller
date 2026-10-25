@@ -65,7 +65,7 @@
 
 ## 3. Quick Start: Cluster Deployment (Single Command)
 
-Deploy the complete EGRC stack (Namespace, CRD, RBAC, Controller Manager, and embedded Web Dashboard) with a single command:
+Deploy the complete EGRC stack (CRD, RBAC, Controller Manager, and embedded Web Dashboard) into your existing `envoy-gateway-system` namespace with a single command:
 
 ```bash
 # Option A: Remote deployment directly via GitHub

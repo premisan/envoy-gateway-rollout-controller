@@ -65,7 +65,7 @@
 
 ## 3. 빠른 시작: 클러스터 내부 배포 (단일 커맨드)
 
-EGRC의 모든 구성 요소(Namespace, CRD, RBAC, 컨트롤러 매니저 및 내장 웹 UI)를 단일 명령어로 배포할 수 있습니다:
+EGRC의 모든 구성 요소(CRD, RBAC, 컨트롤러 매니저 및 내장 웹 UI)를 기존 `envoy-gateway-system` 네임스페이스에 단일 명령어로 배포할 수 있습니다:
 
 ```bash
 # 원격 GitHub 매니페스트 직접 배포
