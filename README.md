@@ -250,12 +250,7 @@ make build
 make test
 ```
 
-### 7.2 Docker Image
-```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.16
-```
-
-### 7.3 Step-by-Step Manual Deployment
+### 7.2 Step-by-Step Manual Deployment
 If you prefer to inspect and deploy individual manifests manually:
 
 ```bash

@@ -250,12 +250,7 @@ make build
 make test
 ```
 
-### 7.2 Docker 이미지
-```bash
-docker pull premisan0/envoy-gateway-rollout-controller:v1.0.16
-```
-
-### 7.3 컴포넌트별 개별 배포 (수동)
+### 7.2 컴포넌트별 개별 배포 (수동)
 `deploy/install.yaml` 대신 개별 리소스를 검토하며 배포할 경우:
 
 ```bash
