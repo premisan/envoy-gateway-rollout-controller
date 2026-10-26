@@ -302,6 +302,28 @@ func (r *EnvoyGatewayRolloutReconciler) handleCompleted(ctx context.Context, rol
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Self-healing: check if any base envoy-proxy pods are still running older images (due to OnDelete strategy)
+	targetVer := rollout.Status.CurrentVersion
+	if targetVer == "" {
+		targetVer = rollout.Spec.Version
+	}
+	if targetVer != "" {
+		podList := &corev1.PodList{}
+		if err := r.List(ctx, podList, client.InNamespace(targetNamespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy"}); err == nil {
+			for _, pod := range podList.Items {
+				if pod.Labels["rollout.envoyproxy.io/canary"] != "true" && pod.DeletionTimestamp == nil && !isPodUpdated(&pod, targetVer) {
+					logger := log.FromContext(ctx)
+					logger.Info("Self-healing: deleting older envoy-proxy pod to trigger OnDelete update to targetVersion",
+						"pod", pod.Name, "node", pod.Spec.NodeName, "targetVersion", targetVer)
+					if pod.Status.PodIP != "" {
+						_ = r.AdminClient.DrainListeners(ctx, pod.Status.PodIP, 19001)
+					}
+					_ = r.Delete(ctx, &pod)
+				}
+			}
+		}
+	}
+
 	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
 
 	changed := false
@@ -386,15 +408,8 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 
 	stepIdx := rollout.Status.CurrentStep - 1
 	if stepIdx < 0 || stepIdx >= len(rollout.Spec.Strategy.Steps) {
-		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
-		rollout.Status.CurrentVersion = targetVersion
-		rollout.Status.StepTimeRemaining = ""
-		rollout.Status.Message = "Rollout successfully completed across all nodes"
-		_ = r.syncDataPlaneDaemonSet(ctx, targetNamespace, targetVersion)
-		r.deleteCanaryPods(ctx, targetNamespace)
-		_ = r.PromManager.CleanupEphemeralPrometheus(ctx, rollout)
-		_ = r.Status().Update(ctx, rollout)
-		return ctrl.Result{}, nil
+		rollout.Status.CurrentStep = len(rollout.Spec.Strategy.Steps)
+		return r.handleDraining(ctx, rollout)
 	}
 
 	step := rollout.Spec.Strategy.Steps[stepIdx]
@@ -736,15 +751,23 @@ func (r *EnvoyGatewayRolloutReconciler) handleDraining(ctx context.Context, roll
 		for _, node := range rollout.Status.Nodes {
 			hasReadyUpdated := false
 			for _, pod := range freshPodList.Items {
-				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" && isPodReady(&pod) && pod.DeletionTimestamp == nil {
-					hasReadyUpdated = true
-					break
+				if pod.Spec.NodeName == node.NodeName && pod.Labels["rollout.envoyproxy.io/canary"] != "true" {
+					if isPodUpdated(&pod, completedVer) && isPodReady(&pod) && pod.DeletionTimestamp == nil {
+						hasReadyUpdated = true
+						break
+					} else if !isPodUpdated(&pod, completedVer) && pod.DeletionTimestamp == nil {
+						// Found older pod that hasn't restarted with new template yet (due to OnDelete strategy)
+						logger.Info("Triggering restart of un-updated envoy-proxy pod on node", "node", node.NodeName, "pod", pod.Name, "targetVersion", completedVer)
+						if pod.Status.PodIP != "" {
+							_ = r.AdminClient.DrainListeners(ctx, pod.Status.PodIP, 19001)
+						}
+						_ = r.Delete(ctx, &pod)
+					}
 				}
 			}
 			if !hasReadyUpdated {
 				allNodesHaveReadyUpdatedPod = false
 				unreadyNodeName = node.NodeName
-				break
 			}
 		}
 
@@ -1418,6 +1441,43 @@ func isPodReady(pod *corev1.Pod) bool {
 	}
 	for _, cond := range pod.Status.Conditions {
 		if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// isPodUpdated checks if an envoy-proxy pod is running the target version images.
+func isPodUpdated(pod *corev1.Pod, targetVersion string) bool {
+	if pod == nil {
+		return false
+	}
+	cleanVer := strings.TrimSpace(targetVersion)
+	if cleanVer == "" {
+		return true
+	}
+
+	targetGatewayImage := fmt.Sprintf("envoyproxy/gateway:%s", cleanVer)
+	targetEnvoyImage := resolveEnvoyImageForVersion(cleanVer)
+
+	hasEnvoy := false
+	hasGateway := false
+
+	for _, c := range pod.Spec.Containers {
+		if c.Name == "envoy" && imageEquals(c.Image, targetEnvoyImage) {
+			hasEnvoy = true
+		}
+		if c.Name == "shutdown-manager" && imageEquals(c.Image, targetGatewayImage) {
+			hasGateway = true
+		}
+	}
+
+	if hasEnvoy || hasGateway {
+		return true
+	}
+
+	for _, c := range pod.Spec.Containers {
+		if strings.Contains(c.Image, cleanVer) {
 			return true
 		}
 	}

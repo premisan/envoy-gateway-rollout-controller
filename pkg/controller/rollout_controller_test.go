@@ -250,3 +250,29 @@ func TestReconcileChildResourcesEnvoyProxyTolerations(t *testing.T) {
 		t.Errorf("toleration content mismatch: %+v", tolMap)
 	}
 }
+
+func TestIsPodUpdated(t *testing.T) {
+	podUpdated := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "envoy", Image: "docker.io/envoyproxy/envoy:distroless-v1.39.0"},
+				{Name: "shutdown-manager", Image: "envoyproxy/gateway:v1.7.2"},
+			},
+		},
+	}
+	podOld := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "envoy", Image: "docker.io/envoyproxy/envoy:distroless-v1.37.2"},
+				{Name: "shutdown-manager", Image: "docker.io/envoyproxy/gateway:v1.7.4"},
+			},
+		},
+	}
+
+	if !isPodUpdated(podUpdated, "v1.7.2") {
+		t.Errorf("expected podUpdated to be updated for v1.7.2")
+	}
+	if isPodUpdated(podOld, "v1.7.2") {
+		t.Errorf("expected podOld NOT to be updated for v1.7.2")
+	}
+}

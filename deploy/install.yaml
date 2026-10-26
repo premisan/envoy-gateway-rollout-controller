@@ -333,7 +333,7 @@ spec:
       serviceAccountName: envoy-gateway-rollout-controller
       containers:
         - name: manager
-          image: premisan0/envoy-gateway-rollout-controller:v1.0.20
+          image: premisan0/envoy-gateway-rollout-controller:v1.0.21
           imagePullPolicy: Always
           env:
             - name: HOME
