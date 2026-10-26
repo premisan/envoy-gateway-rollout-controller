@@ -7,7 +7,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
@@ -173,5 +176,77 @@ func TestDetectEnvoyGatewayVersionAndPendingUpgrade(t *testing.T) {
 	}
 	if rollout.Status.CurrentStep != 1 {
 		t.Errorf("expected CurrentStep = 1, got %d", rollout.Status.CurrentStep)
+	}
+}
+
+func TestReconcileChildResourcesEnvoyProxyTolerations(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = rolloutv1alpha1.AddToScheme(scheme)
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	reconciler := NewEnvoyGatewayRolloutReconciler(fakeClient, scheme)
+
+	ctx := context.Background()
+
+	rollout := &rolloutv1alpha1.EnvoyGatewayRollout{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eg",
+			Namespace: "envoy-gateway-system",
+		},
+		Spec: rolloutv1alpha1.EnvoyGatewayRolloutSpec{
+			Version:         "v1.8.0",
+			TargetNamespace: "envoy-gateway-system",
+			Gateway: rolloutv1alpha1.GatewayConfig{
+				Name: "eg",
+			},
+			EnvoyProxy: rolloutv1alpha1.EnvoyProxyConfig{
+				Name: "custom-proxy-config",
+				NodeSelector: map[string]string{
+					"dkosv3.9rum.cc/node-group": "envoy-gateway",
+				},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "node-role.dkosv3.9rum.cc/lb",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "true",
+						Effect:   corev1.TaintEffectNoExecute,
+					},
+				},
+			},
+		},
+	}
+
+	err := reconciler.reconcileChildResources(ctx, rollout, "envoy-gateway-system")
+	if err != nil {
+		t.Fatalf("reconcileChildResources returned error: %v", err)
+	}
+
+	// Fetch created EnvoyProxy
+	proxy := &unstructured.Unstructured{}
+	proxy.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "gateway.envoyproxy.io",
+		Version: "v1alpha1",
+		Kind:    "EnvoyProxy",
+	})
+	if err := fakeClient.Get(ctx, client.ObjectKey{Namespace: "envoy-gateway-system", Name: "custom-proxy-config"}, proxy); err != nil {
+		t.Fatalf("failed to get created EnvoyProxy: %v", err)
+	}
+
+	tolerations, found, err := unstructured.NestedSlice(proxy.Object, "spec", "provider", "kubernetes", "envoyDaemonSet", "pod", "tolerations")
+	if err != nil || !found {
+		t.Fatalf("tolerations not found in EnvoyProxy spec: found=%v, err=%v", found, err)
+	}
+	if len(tolerations) != 1 {
+		t.Fatalf("expected 1 toleration, got %d", len(tolerations))
+	}
+
+	tolMap, ok := tolerations[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected toleration item to be map[string]interface{}, got %T", tolerations[0])
+	}
+	if tolMap["key"] != "node-role.dkosv3.9rum.cc/lb" || tolMap["effect"] != "NoExecute" || tolMap["value"] != "true" {
+		t.Errorf("toleration content mismatch: %+v", tolMap)
 	}
 }

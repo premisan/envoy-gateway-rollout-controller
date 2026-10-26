@@ -933,10 +933,15 @@ func (r *EnvoyGatewayRolloutReconciler) reconcileChildResources(
 			"type": "OnDelete",
 		},
 	}
+	podSpecMap := map[string]interface{}{}
 	if len(rollout.Spec.EnvoyProxy.NodeSelector) > 0 {
-		daemonSetSpec["pod"] = map[string]interface{}{
-			"nodeSelector": stringMapToInterfaceMap(rollout.Spec.EnvoyProxy.NodeSelector),
-		}
+		podSpecMap["nodeSelector"] = stringMapToInterfaceMap(rollout.Spec.EnvoyProxy.NodeSelector)
+	}
+	if len(rollout.Spec.EnvoyProxy.Tolerations) > 0 {
+		podSpecMap["tolerations"] = tolerationsToInterfaceList(rollout.Spec.EnvoyProxy.Tolerations)
+	}
+	if len(podSpecMap) > 0 {
+		daemonSetSpec["pod"] = podSpecMap
 	}
 	_ = unstructured.SetNestedMap(envoyProxy.Object, map[string]interface{}{
 		"type": "Kubernetes",
@@ -1098,6 +1103,30 @@ func stringMapToInterfaceMap(m map[string]string) map[string]interface{} {
 	return res
 }
 
+func tolerationsToInterfaceList(tolerations []corev1.Toleration) []interface{} {
+	result := make([]interface{}, 0, len(tolerations))
+	for _, tol := range tolerations {
+		tolMap := map[string]interface{}{}
+		if tol.Key != "" {
+			tolMap["key"] = tol.Key
+		}
+		if tol.Operator != "" {
+			tolMap["operator"] = string(tol.Operator)
+		}
+		if tol.Value != "" {
+			tolMap["value"] = tol.Value
+		}
+		if tol.Effect != "" {
+			tolMap["effect"] = string(tol.Effect)
+		}
+		if tol.TolerationSeconds != nil {
+			tolMap["tolerationSeconds"] = *tol.TolerationSeconds
+		}
+		result = append(result, tolMap)
+	}
+	return result
+}
+
 // syncControlPlane synchronizes CRDs and updates the Envoy Gateway Control Plane Deployment.
 func (r *EnvoyGatewayRolloutReconciler) syncControlPlane(
 	ctx context.Context,
@@ -1207,6 +1236,21 @@ func (r *EnvoyGatewayRolloutReconciler) ensureCanaryPod(
 
 	podSpec := *ds.Spec.Template.Spec.DeepCopy()
 	podSpec.NodeName = nodeName // Explicitly schedule on target canary node
+
+	if len(rollout.Spec.EnvoyProxy.Tolerations) > 0 {
+		for _, rTol := range rollout.Spec.EnvoyProxy.Tolerations {
+			found := false
+			for _, pTol := range podSpec.Tolerations {
+				if pTol.Key == rTol.Key && pTol.Value == rTol.Value && pTol.Effect == rTol.Effect {
+					found = true
+					break
+				}
+			}
+			if !found {
+				podSpec.Tolerations = append(podSpec.Tolerations, rTol)
+			}
+		}
+	}
 
 	for i := range podSpec.Containers {
 		c := &podSpec.Containers[i]

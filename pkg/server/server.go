@@ -52,8 +52,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/stream", s.handleSSE)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"version": "v1.0.18",
-			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.18",
+			"version": "v1.0.19",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.19",
 		})
 	})
 
