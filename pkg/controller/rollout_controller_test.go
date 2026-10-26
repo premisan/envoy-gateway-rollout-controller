@@ -1,7 +1,16 @@
 package controller
 
 import (
+	"context"
 	"testing"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
 )
 
 func TestParseNodeCount(t *testing.T) {
@@ -93,5 +102,76 @@ func TestResolveEnvoyImageForVersion(t *testing.T) {
 		if got != c.expectedEnvoy {
 			t.Errorf("resolveEnvoyImageForVersion(%q) = %q, expected %q", c.gatewayVersion, got, c.expectedEnvoy)
 		}
+	}
+}
+
+func TestDetectEnvoyGatewayVersionAndPendingUpgrade(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+	_ = corev1.AddToScheme(scheme)
+	_ = rolloutv1alpha1.AddToScheme(scheme)
+
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "envoy-gateway",
+			Namespace: "envoy-gateway-system",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "envoy-gateway",
+							Image: "docker.io/envoyproxy/gateway:v1.7.4",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(deploy).Build()
+	reconciler := NewEnvoyGatewayRolloutReconciler(fakeClient, scheme)
+
+	ctx := context.Background()
+
+	// 1. Test detectEnvoyGatewayVersion
+	detected := reconciler.detectEnvoyGatewayVersion(ctx, "envoy-gateway-system")
+	if detected != "v1.7.4" {
+		t.Fatalf("expected detected version v1.7.4, got %q", detected)
+	}
+
+	// 2. Test handlePending triggers upgrade when target is v1.8.0
+	rollout := &rolloutv1alpha1.EnvoyGatewayRollout{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eg",
+			Namespace: "envoy-gateway-system",
+		},
+		Spec: rolloutv1alpha1.EnvoyGatewayRolloutSpec{
+			Version:         "v1.8.0",
+			TargetNamespace: "envoy-gateway-system",
+			Strategy: rolloutv1alpha1.RolloutStrategy{
+				Steps: []rolloutv1alpha1.RolloutStep{
+					{Nodes: "1"},
+				},
+			},
+		},
+	}
+
+	res, err := reconciler.handlePending(ctx, rollout)
+	if err != nil {
+		t.Fatalf("handlePending returned unexpected error: %v", err)
+	}
+	if !res.Requeue {
+		t.Errorf("expected Requeue to be true for upgrade transition")
+	}
+	if rollout.Status.CurrentVersion != "v1.7.4" {
+		t.Errorf("expected rollout.Status.CurrentVersion = v1.7.4, got %q", rollout.Status.CurrentVersion)
+	}
+	if rollout.Status.Phase != rolloutv1alpha1.PhaseDeploying {
+		t.Errorf("expected rollout.Status.Phase = %s, got %s", rolloutv1alpha1.PhaseDeploying, rollout.Status.Phase)
+	}
+	if rollout.Status.CurrentStep != 1 {
+		t.Errorf("expected CurrentStep = 1, got %d", rollout.Status.CurrentStep)
 	}
 }

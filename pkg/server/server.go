@@ -52,8 +52,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/stream", s.handleSSE)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"version": "v1.0.17",
-			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.17",
+			"version": "v1.0.18",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.18",
 		})
 	})
 
@@ -459,14 +459,7 @@ type EnvoyGatewayStatusResponse struct {
 	ReadyReplicas  int32  `json:"readyReplicas"`
 }
 
-func (s *Server) handleEnvoyGatewayStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	ctx := r.Context()
-	targetNS := r.URL.Query().Get("namespace")
+func (s *Server) detectEnvoyGateway(ctx context.Context, targetNS string) EnvoyGatewayStatusResponse {
 	if targetNS == "" {
 		targetNS = "envoy-gateway-system"
 	}
@@ -515,6 +508,17 @@ func (s *Server) handleEnvoyGatewayStatus(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	return resp
+}
+
+func (s *Server) handleEnvoyGatewayStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	targetNS := r.URL.Query().Get("namespace")
+	resp := s.detectEnvoyGateway(r.Context(), targetNS)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -595,6 +599,8 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 		},
 	}
 
+	egStatus := s.detectEnvoyGateway(r.Context(), ns)
+
 	if err := s.client.Create(r.Context(), rollout); err != nil {
 		if errors.IsAlreadyExists(err) {
 			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -605,7 +611,18 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 				current.Spec.Version = targetVer
 				current.Spec.Control.Paused = false
 				current.Spec.Control.Abort = false
-				return s.client.Update(r.Context(), current)
+
+				if egStatus.Installed && egStatus.Version != "" {
+					current.Status.CurrentVersion = egStatus.Version
+				}
+				current.Status.Phase = rolloutv1alpha1.PhasePending
+				current.Status.CurrentStep = 0
+				current.Status.Message = fmt.Sprintf("Upgrade to %s initiated", targetVer)
+
+				if updateErr := s.client.Update(r.Context(), current); updateErr != nil {
+					return updateErr
+				}
+				return s.client.Status().Update(r.Context(), current)
 			})
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Failed to update existing rollout: %v", err), http.StatusInternalServerError)
@@ -614,6 +631,21 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 		} else {
 			http.Error(w, fmt.Sprintf("Failed to create rollout: %v", err), http.StatusInternalServerError)
 			return
+		}
+	} else {
+		// New rollout created: if actual Envoy Gateway exists in cluster, initialize status immediately
+		if egStatus.Installed && egStatus.Version != "" {
+			_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: "eg"}, current); err != nil {
+					return err
+				}
+				current.Status.CurrentVersion = egStatus.Version
+				current.Status.Phase = rolloutv1alpha1.PhasePending
+				current.Status.CurrentStep = 0
+				current.Status.Message = fmt.Sprintf("Upgrade from %s to %s initiated", egStatus.Version, targetVer)
+				return s.client.Status().Update(r.Context(), current)
+			})
 		}
 	}
 

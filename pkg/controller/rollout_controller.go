@@ -152,13 +152,63 @@ func (r *EnvoyGatewayRolloutReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 }
 
+// detectEnvoyGatewayVersion inspects the target namespace to find existing Envoy Gateway deployment or pod versions.
+func (r *EnvoyGatewayRolloutReconciler) detectEnvoyGatewayVersion(ctx context.Context, namespace string) string {
+	if namespace == "" {
+		namespace = "envoy-gateway-system"
+	}
+
+	// 1. Check deployment/envoy-gateway
+	deploy := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "envoy-gateway"}, deploy); err == nil {
+		for _, container := range deploy.Spec.Template.Spec.Containers {
+			if container.Name == "envoy-gateway" || strings.Contains(container.Image, "gateway") {
+				parts := strings.Split(container.Image, ":")
+				if len(parts) >= 2 {
+					tag := parts[len(parts)-1]
+					return strings.Split(tag, "@")[0]
+				}
+			}
+		}
+	}
+
+	// 2. Check pods with label app.kubernetes.io/name=envoy-gateway
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabels{"app.kubernetes.io/name": "envoy-gateway"}); err == nil && len(podList.Items) > 0 {
+		for _, pod := range podList.Items {
+			for _, container := range pod.Spec.Containers {
+				if container.Name == "envoy-gateway" || strings.Contains(container.Image, "gateway") {
+					parts := strings.Split(container.Image, ":")
+					if len(parts) >= 2 {
+						tag := parts[len(parts)-1]
+						return strings.Split(tag, "@")[0]
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
 func (r *EnvoyGatewayRolloutReconciler) handlePending(ctx context.Context, rollout *rolloutv1alpha1.EnvoyGatewayRollout) (ctrl.Result, error) {
 	rollout.Status.TargetVersion = rollout.Spec.Version
 	rollout.Status.TotalSteps = len(rollout.Spec.Strategy.Steps)
 	rollout.Status.StepTimeRemaining = ""
 
+	targetNS := rollout.Spec.TargetNamespace
+	if targetNS == "" {
+		targetNS = "envoy-gateway-system"
+	}
+
+	// Detect actual Envoy Gateway version currently deployed in the cluster
+	detectedVer := r.detectEnvoyGatewayVersion(ctx, targetNS)
+	if detectedVer != "" {
+		rollout.Status.CurrentVersion = detectedVer
+	}
+
 	if rollout.Status.CurrentVersion == "" {
-		// Initial deployment scenario
+		// Initial deployment scenario where no prior version exists in cluster
 		rollout.Status.CurrentVersion = rollout.Spec.Version
 		rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
 		rollout.Status.Message = fmt.Sprintf("Initial deployment of version %s completed", rollout.Spec.Version)
@@ -178,6 +228,11 @@ func (r *EnvoyGatewayRolloutReconciler) handlePending(ctx context.Context, rollo
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Current version matches target version
+	rollout.Status.Phase = rolloutv1alpha1.PhaseCompleted
+	rollout.Status.Message = fmt.Sprintf("Envoy Gateway is already at target version %s", rollout.Spec.Version)
+	rollout.Status.LastUpdateTime = metav1.Now()
+	_ = r.Status().Update(ctx, rollout)
 	return ctrl.Result{}, nil
 }
 
@@ -227,6 +282,24 @@ func (r *EnvoyGatewayRolloutReconciler) handleCompleted(ctx context.Context, rol
 	targetNamespace := rollout.Spec.TargetNamespace
 	if targetNamespace == "" {
 		targetNamespace = "envoy-gateway-system"
+	}
+
+	// Self-healing check: if cluster's actual Envoy Gateway version differs from rollout.Spec.Version,
+	// and Status was erroneously marked Completed or CurrentVersion doesn't match actual cluster state,
+	// reset to PhasePending to trigger the rollout pipeline!
+	detectedVer := r.detectEnvoyGatewayVersion(ctx, targetNamespace)
+	if detectedVer != "" && detectedVer != rollout.Spec.Version && !rollout.Spec.Control.Paused {
+		logger := log.FromContext(ctx)
+		logger.Info("Detected cluster Envoy Gateway version mismatch in Completed phase, initiating rollout",
+			"actualClusterVersion", detectedVer,
+			"targetVersion", rollout.Spec.Version)
+		rollout.Status.CurrentVersion = detectedVer
+		rollout.Status.Phase = rolloutv1alpha1.PhasePending
+		rollout.Status.CurrentStep = 0
+		rollout.Status.Message = fmt.Sprintf("Starting upgrade from %s to %s", detectedVer, rollout.Spec.Version)
+		rollout.Status.LastUpdateTime = metav1.Now()
+		_ = r.Status().Update(ctx, rollout)
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	nodeSessions := r.getActiveSessionsPerNode(ctx, rollout, targetNamespace)
