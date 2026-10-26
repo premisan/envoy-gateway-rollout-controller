@@ -1,7 +1,8 @@
-.PHONY: all build build-ui build-go test docker-build clean run
+.PHONY: all build build-ui build-go test docker-build docker-buildx clean run
 
 BINARY_NAME=bin/controller
 IMAGE_TAG=premisan0/envoy-gateway-rollout-controller:latest
+PLATFORMS ?= linux/amd64,linux/arm64
 
 all: build
 
@@ -21,6 +22,9 @@ docker-build:
 
 docker-push:
 	docker push $(IMAGE_TAG)
+
+docker-buildx:
+	docker buildx build --platform $(PLATFORMS) -t $(IMAGE_TAG) --push .
 
 clean:
 	rm -rf bin/ ui/dist/
