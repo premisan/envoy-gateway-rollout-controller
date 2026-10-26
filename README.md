@@ -1,5 +1,9 @@
 # Envoy Gateway Rollout Controller (EGRC)
 
+> [!CAUTION]
+> **This project is discontinued and unfinished (미완성 / 개발 중단 및 폐기).**  
+> In production Kubernetes environments, visibility into state changes across existing cluster resources is limited, and managing migrations from diverse deployment patterns (Helm, GitOps, custom EnvoyProxy/DaemonSet configs) introduces operational risks. Therefore, this project is discontinued and is **not recommended for production use**.
+
 **English** | [한국어 (Korean)](./README.ko.md)
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.30%2B-blue?logo=kubernetes)](https://kubernetes.io/)

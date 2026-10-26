@@ -1,5 +1,9 @@
 # Envoy Gateway Rollout Controller (EGRC)
 
+> [!CAUTION]
+> **본 프로젝트는 미완성 상태로 개발이 중단 및 폐기된 프로젝트입니다.**  
+> 실제 운영(Production) 환경에서 클러스터 내 리소스 변화에 대한 가시성 한계 및 기존의 다양한 배포 방식(Helm, GitOps, 커스텀 EnvoyProxy/DaemonSet 등)에서의 마이그레이션 이슈로 인해 프로젝트 개발 및 유지보수가 공식 중단되었습니다. 실 서비스 운영 환경에서의 사용을 권장하지 않습니다.
+
 [English](./README.md) | **한국어**
 
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.30%2B-blue?logo=kubernetes)](https://kubernetes.io/)
