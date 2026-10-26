@@ -6,108 +6,24 @@ import { NodeTopologyView } from './components/NodeTopologyView';
 import { MetricCharts } from './components/MetricCharts';
 import { ControlPanel } from './components/ControlPanel';
 import { UpgradeModal } from './components/UpgradeModal';
-import { RolloutItem } from './types';
+import { StandbyView } from './components/StandbyView';
+import { RolloutItem, EnvoyGatewayStatus } from './types';
 import { useI18n } from './i18n';
-
-const SAMPLE_FALLBACK_ROLLOUT: RolloutItem = {
-  metadata: {
-    name: 'eg',
-    namespace: 'envoy-gateway-system',
-    creationTimestamp: new Date().toISOString(),
-  },
-  spec: {
-    version: 'v1.9.2',
-    targetNamespace: 'envoy-gateway-system',
-    gateway: {
-      name: 'eg',
-    },
-    strategy: {
-      steps: [
-        { nodes: '1', pauseDuration: '3m' },
-        { nodes: '3', pauseDuration: '5m' },
-        { nodes: '100%', pauseDuration: '5m' },
-      ],
-    },
-    analysis: {
-      ephemeralPrometheus: {
-        enabled: true,
-        scrapeInterval: '5s',
-      },
-      failureLimit: 3,
-      metrics: [
-        { name: 'http-5xx-rate', threshold: 1.0, query: '' },
-        { name: 'http-4xx-rate', threshold: 5.0, query: '' },
-        { name: 'connection-errors', threshold: 5.0, query: '' },
-        { name: 'p99-latency', threshold: 100.0, query: '' },
-      ],
-    },
-    control: {
-      paused: false,
-      abort: false,
-      forcePromote: false,
-    },
-  },
-  status: {
-    phase: 'Observing',
-    currentVersion: 'v1.8.5',
-    targetVersion: 'v1.9.2',
-    currentStep: 1,
-    totalSteps: 3,
-    stepTimeRemaining: '2m 14s',
-    ephemeralPrometheusUrl: 'http://egrc-prom-eg.envoy-gateway-system.svc:9090',
-    consecutiveFailures: 0,
-    message: 'Observing Step 1/3 (1 node canary). Prometheus metrics within safe threshold.',
-    nodes: [
-      {
-        nodeName: 'ingress-lb-node-01',
-        nodeIP: '10.244.1.11',
-        phase: 'Canary',
-        activeVersion: 'v1.8.5',
-        canaryVersion: 'v1.9.2',
-        drainProgress: 0,
-        activeSessions: 142,
-        errorCount5xx: 0,
-      },
-      {
-        nodeName: 'ingress-lb-node-02',
-        nodeIP: '10.244.1.12',
-        phase: 'Stable',
-        activeVersion: 'v1.8.5',
-        drainProgress: 0,
-        activeSessions: 268,
-        errorCount5xx: 0,
-      },
-      {
-        nodeName: 'ingress-lb-node-03',
-        nodeIP: '10.244.1.13',
-        phase: 'Stable',
-        activeVersion: 'v1.8.5',
-        drainProgress: 0,
-        activeSessions: 285,
-        errorCount5xx: 0,
-      },
-    ],
-    lastMetricSnapshot: {
-      'http-5xx-rate': 0.04,
-      'http-4xx-rate': 0.01,
-      'connection-errors': 0.0,
-      'p99-latency': 12.4,
-    },
-  },
-};
 
 export function App() {
   const { t } = useI18n();
-  const [rollouts, setRollouts] = useState<RolloutItem[]>([SAMPLE_FALLBACK_ROLLOUT]);
+  const [rollouts, setRollouts] = useState<RolloutItem[]>([]);
   const [selectedRolloutName, setSelectedRolloutName] = useState<string>('eg');
   const [connected, setConnected] = useState<boolean>(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
+  const [egStatus, setEgStatus] = useState<EnvoyGatewayStatus | null>(null);
 
-  const selectedRollout = rollouts.find((r) => r.metadata.name === selectedRolloutName) || rollouts[0];
+  const selectedRollout = rollouts.find((r) => r.metadata.name === selectedRolloutName) || (rollouts.length > 0 ? rollouts[0] : null);
 
   useEffect(() => {
-    // Initial fetch
+    // Initial fetches
     fetchRollouts();
+    fetchEgStatus();
 
     // Setup SSE connection
     const eventSource = new EventSource('/api/stream');
@@ -119,8 +35,14 @@ export function App() {
     eventSource.onmessage = (event) => {
       try {
         const data: RolloutItem[] = JSON.parse(event.data);
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setRollouts(data);
+          if (data.length > 0) {
+            setSelectedRolloutName((prev) => {
+              if (data.some((r) => r.metadata.name === prev)) return prev;
+              return data[0].metadata.name;
+            });
+          }
         }
       } catch (err) {
         console.error('Failed to parse SSE payload', err);
@@ -131,8 +53,14 @@ export function App() {
       setConnected(false);
     };
 
+    // Periodically re-check cluster Envoy Gateway status every 15s
+    const statusInterval = setInterval(() => {
+      fetchEgStatus();
+    }, 15000);
+
     return () => {
       eventSource.close();
+      clearInterval(statusInterval);
     };
   }, []);
 
@@ -141,15 +69,30 @@ export function App() {
       const res = await fetch('/api/rollouts');
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setRollouts(data);
-          if (!data.some((r) => r.metadata.name === selectedRolloutName)) {
-            setSelectedRolloutName(data[0].metadata.name);
+          if (data.length > 0) {
+            setSelectedRolloutName((prev) => {
+              if (data.some((r) => r.metadata.name === prev)) return prev;
+              return data[0].metadata.name;
+            });
           }
         }
       }
     } catch (e) {
-      // Backend not running yet or sandbox, fallback retained
+      console.warn('Backend not ready or API unreachable', e);
+    }
+  };
+
+  const fetchEgStatus = async () => {
+    try {
+      const res = await fetch('/api/envoy-gateway/status');
+      if (res.ok) {
+        const data: EnvoyGatewayStatus = await res.json();
+        setEgStatus(data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch Envoy Gateway cluster status', e);
     }
   };
 
@@ -167,6 +110,29 @@ export function App() {
     }
     await fetchRollouts();
   };
+
+  const handleStartUpgrade = async (targetVersion: string) => {
+    if (selectedRollout) {
+      // Existing rollout resource present: perform upgrade action
+      await handleAction('upgrade', { targetVersion });
+    } else {
+      // No rollout resource present in cluster: bootstrap initial EnvoyGatewayRollout
+      const ns = egStatus?.namespace || 'envoy-gateway-system';
+      const res = await fetch('/api/rollouts/bootstrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetVersion, namespace: ns }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || 'Failed to start initial rollout');
+      }
+      await fetchRollouts();
+      await fetchEgStatus();
+    }
+  };
+
+  const detectedVersion = selectedRollout?.status?.currentVersion || selectedRollout?.spec?.version || egStatus?.version || 'v1.7.4';
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
@@ -196,19 +162,20 @@ export function App() {
               consecutiveFailures={selectedRollout.status?.consecutiveFailures}
               definedMetrics={selectedRollout.spec.analysis?.metrics}
             />
-
-            <UpgradeModal
-              isOpen={isUpgradeModalOpen}
-              onClose={() => setIsUpgradeModalOpen(false)}
-              currentVersion={selectedRollout.status?.currentVersion || selectedRollout.spec.version}
-              onConfirmUpgrade={(ver) => handleAction('upgrade', { targetVersion: ver })}
-            />
           </>
         ) : (
-          <div className="py-20 text-center">
-            <p className="text-slate-400">{t('noRollouts')}</p>
-          </div>
+          <StandbyView
+            egStatus={egStatus}
+            onOpenUpgradeModal={() => setIsUpgradeModalOpen(true)}
+          />
         )}
+
+        <UpgradeModal
+          isOpen={isUpgradeModalOpen}
+          onClose={() => setIsUpgradeModalOpen(false)}
+          currentVersion={detectedVersion}
+          onConfirmUpgrade={handleStartUpgrade}
+        />
       </main>
 
       <footer className="border-t border-slate-200 py-3 text-center text-xs text-slate-500 bg-white">

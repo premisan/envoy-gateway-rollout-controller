@@ -36,7 +36,7 @@ export const UpgradeModal: React.FC<Props> = ({
 }) => {
   const { t } = useI18n();
   const [releases, setReleases] = useState<ReleaseInfo[]>(DEFAULT_RELEASES);
-  const [selectedVersion, setSelectedVersion] = useState<string>('v1.9.2');
+  const [selectedVersion, setSelectedVersion] = useState<string>('');
   const [loadingReleases, setLoadingReleases] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
@@ -44,8 +44,12 @@ export const UpgradeModal: React.FC<Props> = ({
   useEffect(() => {
     if (isOpen) {
       fetchReleases();
+      const candidate = releases.find((r) => r.version !== currentVersion);
+      if (candidate) {
+        setSelectedVersion(candidate.version);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, currentVersion]);
 
   const fetchReleases = async () => {
     setLoadingReleases(true);
@@ -117,7 +121,7 @@ export const UpgradeModal: React.FC<Props> = ({
             <input
               type="text"
               disabled
-              value={currentVersion || 'v1.8.5'}
+              value={currentVersion || ''}
               className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono text-emerald-700 font-bold cursor-not-allowed"
             />
           </div>

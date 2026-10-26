@@ -92,6 +92,21 @@ export const translations = {
     // Footer
     footerText: 'Envoy Gateway Rollout Controller',
     noRollouts: 'No active rollout resources found.',
+
+    // Standby & Empty State
+    standbyTitle: 'Cluster Ready & Standby',
+    standbySubtitle: 'No active rollout in progress. Envoy Gateway is operating stably.',
+    egDetected: 'Envoy Gateway Detected',
+    egNotDetected: 'Envoy Gateway Not Found',
+    clusterEgVersion: 'Detected Cluster Version',
+    clusterReplicas: 'Ready Replicas',
+    btnStartUpgrade: 'Start Envoy Gateway Rollout',
+    startRolloutDesc: 'Initiate a safe, zero-downtime canary upgrade to a newer version of Envoy Gateway.',
+    howItWorks: 'How Zero-Downtime Rollout Works',
+    howItWorksStep1: 'Control Plane & CRD Sync: Syncs CRDs and prepares controller components.',
+    howItWorksStep2: 'Canary Metrics Guardrail: Provisions temporary Prometheus to monitor 5xx/4xx error rates.',
+    howItWorksStep3: 'Phased Node Canary: Progressively migrates node traffic with automated rollback protection.',
+    metricAwaiting: 'Awaiting metric collection...',
   },
   ko: {
     // Navbar
@@ -182,6 +197,21 @@ export const translations = {
     // Footer
     footerText: 'Envoy Gateway Rollout Controller',
     noRollouts: '활성 롤아웃 리소스가 없습니다.',
+
+    // Standby & Empty State
+    standbyTitle: '클러스터 정상 대기 중',
+    standbySubtitle: '현재 진행 중인 롤아웃이 없습니다. 클러스터 내 Envoy Gateway가 안정적으로 운영 중입니다.',
+    egDetected: 'Envoy Gateway 감지됨',
+    egNotDetected: 'Envoy Gateway 미감지',
+    clusterEgVersion: '클러스터 감지 버전',
+    clusterReplicas: '정상 레플리카',
+    btnStartUpgrade: 'Envoy Gateway 업그레이드 시작',
+    startRolloutDesc: '새로운 버전의 Envoy Gateway로 안전하고 중단 없는 카나리 롤아웃을 시작합니다.',
+    howItWorks: '무중단 카나리 롤아웃 동작 방식',
+    howItWorksStep1: '컨트롤 플레인 & CRD 동기화: 신규 CRD를 안전하게 적용하고 컨트롤 플레인을 배포합니다.',
+    howItWorksStep2: '임시 카나리 메트릭 수집기: 경량 프로메테우스를 자동 기동하여 5xx/4xx 에러율을 실시간 수집합니다.',
+    howItWorksStep3: '단계별 노드 카나리 배포: 노드 단위로 카나리 트래픽을 점진 전환하며 이상 감지 시 즉시 자동 롤백합니다.',
+    metricAwaiting: '메트릭 수집 대기 중...',
   },
 };
 

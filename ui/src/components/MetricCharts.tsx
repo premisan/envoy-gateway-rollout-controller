@@ -19,6 +19,7 @@ interface DisplayMetric {
   decimals: number;
   hasThreshold: boolean;
   isBreached: boolean;
+  hasData: boolean;
 }
 
 export const MetricCharts: React.FC<Props> = ({
@@ -44,10 +45,11 @@ export const MetricCharts: React.FC<Props> = ({
   for (const rule of activeRules) {
     seenKeys.add(rule.name);
     const rawVal = metricsSnapshot[rule.name];
-    const val = typeof rawVal === 'number' && !isNaN(rawVal) ? rawVal : 0.0;
+    const hasData = typeof rawVal === 'number' && !isNaN(rawVal);
+    const val = hasData ? rawVal : 0.0;
     const threshold = rule.threshold ?? 0;
     const hasThreshold = threshold > 0;
-    const isBreached = hasThreshold && val > threshold;
+    const isBreached = hasData && hasThreshold && val > threshold;
 
     let label = rule.name;
     let unit = '';
@@ -97,6 +99,7 @@ export const MetricCharts: React.FC<Props> = ({
       decimals,
       hasThreshold,
       isBreached,
+      hasData,
     });
   }
 
@@ -126,6 +129,7 @@ export const MetricCharts: React.FC<Props> = ({
       decimals,
       hasThreshold: false,
       isBreached: false,
+      hasData: true,
     });
   }
 
@@ -182,20 +186,28 @@ export const MetricCharts: React.FC<Props> = ({
               </div>
 
               <div className="flex items-baseline gap-2 mb-2.5">
-                <span
-                  className={`text-2xl font-extrabold font-mono ${
-                    metric.isBreached
-                      ? 'text-rose-600'
-                      : metric.value > 0
-                      ? 'text-slate-900'
-                      : 'text-slate-700'
-                  }`}
-                >
-                  {metric.value.toFixed(metric.decimals)}
-                  {metric.unit === '%' ? '%' : ''}
-                </span>
-                {metric.unit && metric.unit !== '%' && (
-                  <span className="text-xs text-slate-400 font-medium">{metric.unit}</span>
+                {metric.hasData ? (
+                  <>
+                    <span
+                      className={`text-2xl font-extrabold font-mono ${
+                        metric.isBreached
+                          ? 'text-rose-600'
+                          : metric.value > 0
+                          ? 'text-slate-900'
+                          : 'text-slate-700'
+                      }`}
+                    >
+                      {metric.value.toFixed(metric.decimals)}
+                      {metric.unit === '%' ? '%' : ''}
+                    </span>
+                    {metric.unit && metric.unit !== '%' && (
+                      <span className="text-xs text-slate-400 font-medium">{metric.unit}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs font-mono font-medium text-slate-400 py-1">
+                    {t('metricAwaiting')}
+                  </span>
                 )}
               </div>
 
@@ -204,13 +216,15 @@ export const MetricCharts: React.FC<Props> = ({
                 <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
                   <div
                     className={`h-2 rounded-full transition-all duration-500 ${
-                      metric.isBreached
+                      !metric.hasData
+                        ? 'bg-slate-300'
+                        : metric.isBreached
                         ? 'bg-rose-500'
                         : metric.name.includes('5xx') || metric.name.includes('4xx')
                         ? 'bg-emerald-500'
                         : 'bg-sky-600'
                     }`}
-                    style={{ width: `${progressPercent}%` }}
+                    style={{ width: `${metric.hasData ? progressPercent : 0}%` }}
                   />
                 </div>
 

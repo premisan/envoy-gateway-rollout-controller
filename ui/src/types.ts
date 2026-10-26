@@ -67,3 +67,12 @@ export interface RolloutItem {
     lastMetricSnapshot?: Record<string, number>;
   };
 }
+
+export interface EnvoyGatewayStatus {
+  installed: boolean;
+  version: string;
+  namespace: string;
+  deploymentName?: string;
+  readyReplicas?: number;
+}
+

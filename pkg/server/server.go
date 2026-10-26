@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
@@ -42,14 +44,16 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	// REST API Endpoints
+	mux.HandleFunc("/api/rollouts/bootstrap", s.handleBootstrapRollout)
 	mux.HandleFunc("/api/rollouts", s.handleRollouts)
 	mux.HandleFunc("/api/rollouts/", s.handleRolloutActions)
+	mux.HandleFunc("/api/envoy-gateway/status", s.handleEnvoyGatewayStatus)
 	mux.HandleFunc("/api/releases", s.handleReleases)
 	mux.HandleFunc("/api/stream", s.handleSSE)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"version": "v1.0.16",
-			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.16",
+			"version": "v1.0.17",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.17",
 		})
 	})
 
@@ -444,4 +448,177 @@ func (s *Server) handleReleases(w http.ResponseWriter, r *http.Request) {
 		{Version: "v1.6.1", HelmChart: "oci://docker.io/envoyproxy/gateway-helm:v1.6.1", PublishedAt: "2024-04-05T00:00:00Z"},
 	}
 	writeJSON(w, http.StatusOK, fallbackReleases)
+}
+
+// EnvoyGatewayStatusResponse represents detected Envoy Gateway deployment in the cluster
+type EnvoyGatewayStatusResponse struct {
+	Installed      bool   `json:"installed"`
+	Version        string `json:"version"`
+	Namespace      string `json:"namespace"`
+	DeploymentName string `json:"deploymentName,omitempty"`
+	ReadyReplicas  int32  `json:"readyReplicas"`
+}
+
+func (s *Server) handleEnvoyGatewayStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := r.Context()
+	targetNS := r.URL.Query().Get("namespace")
+	if targetNS == "" {
+		targetNS = "envoy-gateway-system"
+	}
+
+	resp := EnvoyGatewayStatusResponse{
+		Installed: false,
+		Version:   "",
+		Namespace: targetNS,
+	}
+
+	// 1. Try finding deployment 'envoy-gateway'
+	deploy := &appsv1.Deployment{}
+	err := s.client.Get(ctx, client.ObjectKey{Namespace: targetNS, Name: "envoy-gateway"}, deploy)
+	if err == nil {
+		resp.Installed = true
+		resp.DeploymentName = deploy.Name
+		resp.ReadyReplicas = deploy.Status.ReadyReplicas
+
+		for _, container := range deploy.Spec.Template.Spec.Containers {
+			if container.Name == "envoy-gateway" || strings.Contains(container.Image, "gateway") {
+				parts := strings.Split(container.Image, ":")
+				if len(parts) >= 2 {
+					tag := parts[len(parts)-1]
+					resp.Version = strings.Split(tag, "@")[0]
+				}
+				break
+			}
+		}
+	} else {
+		// 2. Try listing pods with label app.kubernetes.io/name=envoy-gateway
+		podList := &corev1.PodList{}
+		if listErr := s.client.List(ctx, podList, client.InNamespace(targetNS), client.MatchingLabels{"app.kubernetes.io/name": "envoy-gateway"}); listErr == nil && len(podList.Items) > 0 {
+			pod := podList.Items[0]
+			resp.Installed = true
+			resp.ReadyReplicas = 1
+			for _, container := range pod.Spec.Containers {
+				if container.Name == "envoy-gateway" || strings.Contains(container.Image, "gateway") {
+					parts := strings.Split(container.Image, ":")
+					if len(parts) >= 2 {
+						tag := parts[len(parts)-1]
+						resp.Version = strings.Split(tag, "@")[0]
+					}
+					break
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		TargetVersion string `json:"targetVersion"`
+		Namespace     string `json:"namespace"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	targetVer := strings.TrimSpace(req.TargetVersion)
+	if targetVer == "" {
+		http.Error(w, "targetVersion is required", http.StatusBadRequest)
+		return
+	}
+
+	ns := strings.TrimSpace(req.Namespace)
+	if ns == "" {
+		ns = "envoy-gateway-system"
+	}
+
+	rollout := &rolloutv1alpha1.EnvoyGatewayRollout{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eg",
+			Namespace: ns,
+		},
+		Spec: rolloutv1alpha1.EnvoyGatewayRolloutSpec{
+			Version:         targetVer,
+			TargetNamespace: ns,
+			Gateway: rolloutv1alpha1.GatewayConfig{
+				Name: "eg",
+			},
+			EnvoyProxy: rolloutv1alpha1.EnvoyProxyConfig{
+				Name: "eg-proxy",
+			},
+			Strategy: rolloutv1alpha1.RolloutStrategy{
+				Steps: []rolloutv1alpha1.RolloutStep{
+					{Nodes: "1", Pause: &rolloutv1alpha1.RolloutPause{Duration: "3m"}},
+					{Nodes: "3", Pause: &rolloutv1alpha1.RolloutPause{Duration: "5m"}},
+					{Nodes: "100%", Pause: &rolloutv1alpha1.RolloutPause{Duration: "5m"}},
+				},
+			},
+			Analysis: rolloutv1alpha1.AnalysisConfig{
+				EphemeralPrometheus: rolloutv1alpha1.EphemeralPrometheusConfig{
+					Enabled:        true,
+					ScrapeInterval: "5s",
+					Retention:      "2h",
+				},
+				FailureLimit: 3,
+				Interval:     "15s",
+				Metrics: []rolloutv1alpha1.MetricRule{
+					{
+						Name:      "http-5xx-rate",
+						Threshold: 1.0,
+						Query:     "sum(rate(envoy_cluster_upstream_rq_xx{response_code_class=\"5\", instance=~\"$CANARY_NODES.*\"}[1m])) / clamp_min(sum(rate(envoy_cluster_upstream_rq_xx{instance=~\"$CANARY_NODES.*\"}[1m])), 0.001) * 100",
+					},
+					{
+						Name:      "http-4xx-rate",
+						Threshold: 5.0,
+						Query:     "(sum(rate(envoy_http_downstream_rq_xx{envoy_response_code_class=\"4\", instance=~\"$CANARY_NODES.*\"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"4\", instance=~\"$CANARY_NODES.*\"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{response_code_class=\"4\", instance=~\"$CANARY_NODES.*\"}[1m]))) / clamp_min(sum(rate(envoy_http_downstream_rq_xx{instance=~\"$CANARY_NODES.*\"}[1m])) or sum(rate(envoy_cluster_upstream_rq_xx{instance=~\"$CANARY_NODES.*\"}[1m])), 0.001) * 100",
+					},
+					{
+						Name:      "connection-errors",
+						Threshold: 5.0,
+						Query:     "sum(rate(envoy_server_total_connections_error{instance=~\"$CANARY_NODES.*\"}[1m]))",
+					},
+					{
+						Name:      "p99-latency",
+						Threshold: 100.0,
+						Query:     "(histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket{instance=~\"$CANARY_NODES.*\"}[1m])) by (le)) or histogram_quantile(0.99, sum(rate(envoy_http_downstream_rq_time_bucket[1m])) by (le)))",
+					},
+				},
+			},
+		},
+	}
+
+	if err := s.client.Create(r.Context(), rollout); err != nil {
+		if errors.IsAlreadyExists(err) {
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				current := &rolloutv1alpha1.EnvoyGatewayRollout{}
+				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: "eg"}, current); err != nil {
+					return err
+				}
+				current.Spec.Version = targetVer
+				current.Spec.Control.Paused = false
+				current.Spec.Control.Abort = false
+				return s.client.Update(r.Context(), current)
+			})
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Failed to update existing rollout: %v", err), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			http.Error(w, fmt.Sprintf("Failed to create rollout: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "Rollout successfully initiated",
+		"name":    "eg",
+	})
 }

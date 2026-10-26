@@ -277,7 +277,10 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	// Calculate target canary nodes for current step
 	totalNodes := len(nodeList.Items)
 	if totalNodes == 0 {
-		totalNodes = 3 // Fallback default for demo/dev
+		logger.Info("No cluster nodes found matching selector, waiting for ready nodes")
+		rollout.Status.Message = "Waiting for cluster nodes to be available"
+		_ = r.Status().Update(ctx, rollout)
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 	}
 
 	if rollout.Status.TargetVersion == "" {
@@ -330,17 +333,17 @@ func (r *EnvoyGatewayRolloutReconciler) handleCanaryStep(ctx context.Context, ro
 	nodeStatuses := make([]rolloutv1alpha1.NodeRolloutStatus, 0)
 	canaryNodeNames := make([]string, 0)
 
-	for i := 0; i < totalNodes; i++ {
-		nodeName := fmt.Sprintf("ingress-lb-node-%02d", i+1)
-		nodeIP := fmt.Sprintf("10.244.1.%d", 10+i)
-		if i < len(nodeList.Items) {
-			nodeName = nodeList.Items[i].Name
-			for _, addr := range nodeList.Items[i].Status.Addresses {
-				if addr.Type == corev1.NodeInternalIP {
-					nodeIP = addr.Address
-					break
-				}
+	for i, node := range nodeList.Items {
+		nodeName := node.Name
+		nodeIP := ""
+		for _, addr := range node.Status.Addresses {
+			if addr.Type == corev1.NodeInternalIP {
+				nodeIP = addr.Address
+				break
 			}
+		}
+		if nodeIP == "" && len(node.Status.Addresses) > 0 {
+			nodeIP = node.Status.Addresses[0].Address
 		}
 
 		status := rolloutv1alpha1.NodeRolloutStatus{
