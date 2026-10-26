@@ -111,21 +111,21 @@ export function App() {
     await fetchRollouts();
   };
 
-  const handleStartUpgrade = async (targetVersion: string) => {
-    if (selectedRollout) {
-      // Existing rollout resource present: perform upgrade action
+  const handleStartUpgrade = async (targetVersion: string, customYaml?: string) => {
+    if (selectedRollout && !customYaml) {
+      // Existing rollout resource present and no custom YAML override: perform upgrade action
       await handleAction('upgrade', { targetVersion });
     } else {
-      // No rollout resource present in cluster: bootstrap initial EnvoyGatewayRollout
+      // Bootstrap or apply custom YAML
       const ns = egStatus?.namespace || 'envoy-gateway-system';
       const res = await fetch('/api/rollouts/bootstrap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetVersion, namespace: ns }),
+        body: JSON.stringify({ targetVersion, namespace: ns, yaml: customYaml }),
       });
       if (!res.ok) {
         const txt = await res.text();
-        throw new Error(txt || 'Failed to start initial rollout');
+        throw new Error(txt || 'Failed to apply rollout manifest');
       }
       await fetchRollouts();
       await fetchEgStatus();

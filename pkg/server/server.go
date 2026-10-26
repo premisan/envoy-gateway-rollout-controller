@@ -15,7 +15,10 @@ import (
 	"k8s.io/client-go/util/retry"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	rolloutv1alpha1 "github.com/envoy-gateway-rollout-controller/api/v1alpha1"
 )
@@ -45,6 +48,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// REST API Endpoints
 	mux.HandleFunc("/api/rollouts/bootstrap", s.handleBootstrapRollout)
+	mux.HandleFunc("/api/rollouts/template", s.handleRolloutTemplate)
 	mux.HandleFunc("/api/rollouts", s.handleRollouts)
 	mux.HandleFunc("/api/rollouts/", s.handleRolloutActions)
 	mux.HandleFunc("/api/envoy-gateway/status", s.handleEnvoyGatewayStatus)
@@ -52,8 +56,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/stream", s.handleSSE)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
-			"version": "v1.0.19",
-			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.19",
+			"version": "v1.0.20",
+			"image":   "premisan0/envoy-gateway-rollout-controller:v1.0.20",
 		})
 	})
 
@@ -522,41 +526,111 @@ func (s *Server) handleEnvoyGatewayStatus(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+// DiscoveredEnvoyConfig contains existing Gateway and EnvoyProxy configurations found in the cluster.
+type DiscoveredEnvoyConfig struct {
+	GatewayName    string              `json:"gatewayName"`
+	EnvoyProxyName string              `json:"envoyProxyName"`
+	NodeSelector   map[string]string   `json:"nodeSelector,omitempty"`
+	Tolerations    []corev1.Toleration `json:"tolerations,omitempty"`
+	Annotations    map[string]string   `json:"annotations,omitempty"`
+}
+
+func (s *Server) discoverExistingConfig(ctx context.Context, namespace string) DiscoveredEnvoyConfig {
+	if namespace == "" {
+		namespace = "envoy-gateway-system"
+	}
+	cfg := DiscoveredEnvoyConfig{
+		GatewayName:    "eg",
+		EnvoyProxyName: "eg-proxy",
 	}
 
-	var req struct {
-		TargetVersion string `json:"targetVersion"`
-		Namespace     string `json:"namespace"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	targetVer := strings.TrimSpace(req.TargetVersion)
-	if targetVer == "" {
-		http.Error(w, "targetVersion is required", http.StatusBadRequest)
-		return
-	}
-
-	ns := strings.TrimSpace(req.Namespace)
-	if ns == "" {
-		ns = "envoy-gateway-system"
+	// 1. Try finding Gateway in namespace
+	gwList := &unstructured.UnstructuredList{}
+	gwList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "gateway.networking.k8s.io",
+		Version: "v1",
+		Kind:    "GatewayList",
+	})
+	if err := s.client.List(ctx, gwList, client.InNamespace(namespace)); err == nil && len(gwList.Items) > 0 {
+		cfg.GatewayName = gwList.Items[0].GetName()
 	}
 
-	rollout := &rolloutv1alpha1.EnvoyGatewayRollout{
+	// 2. Try finding EnvoyProxy in namespace
+	epList := &unstructured.UnstructuredList{}
+	epList.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "gateway.envoyproxy.io",
+		Version: "v1alpha1",
+		Kind:    "EnvoyProxyList",
+	})
+	if err := s.client.List(ctx, epList, client.InNamespace(namespace)); err == nil && len(epList.Items) > 0 {
+		ep := epList.Items[0]
+		cfg.EnvoyProxyName = ep.GetName()
+
+		if ns, found, _ := unstructured.NestedStringMap(ep.Object, "spec", "provider", "kubernetes", "envoyDaemonSet", "pod", "nodeSelector"); found {
+			cfg.NodeSelector = ns
+		}
+
+		if ann, found, _ := unstructured.NestedStringMap(ep.Object, "spec", "provider", "kubernetes", "envoyService", "annotations"); found {
+			cfg.Annotations = ann
+		}
+
+		if tols, found, _ := unstructured.NestedSlice(ep.Object, "spec", "provider", "kubernetes", "envoyDaemonSet", "pod", "tolerations"); found {
+			for _, item := range tols {
+				if tMap, ok := item.(map[string]interface{}); ok {
+					var tol corev1.Toleration
+					if k, ok := tMap["key"].(string); ok {
+						tol.Key = k
+					}
+					if op, ok := tMap["operator"].(string); ok {
+						tol.Operator = corev1.TolerationOperator(op)
+					}
+					if v, ok := tMap["value"].(string); ok {
+						tol.Value = v
+					}
+					if eff, ok := tMap["effect"].(string); ok {
+						tol.Effect = corev1.TaintEffect(eff)
+					}
+					cfg.Tolerations = append(cfg.Tolerations, tol)
+				}
+			}
+		}
+	} else {
+		// 3. Fallback: try checking base envoy-proxy DaemonSet in namespace
+		ds := &appsv1.DaemonSet{}
+		if err := s.client.Get(ctx, client.ObjectKey{Namespace: namespace, Name: "envoy-proxy"}, ds); err == nil {
+			if len(ds.Spec.Template.Spec.NodeSelector) > 0 {
+				cfg.NodeSelector = ds.Spec.Template.Spec.NodeSelector
+			}
+			if len(ds.Spec.Template.Spec.Tolerations) > 0 {
+				cfg.Tolerations = ds.Spec.Template.Spec.Tolerations
+			}
+		}
+	}
+
+	return cfg
+}
+
+func (s *Server) generateRolloutTemplate(targetVer string, namespace string, cfg DiscoveredEnvoyConfig) string {
+	rollout := rolloutv1alpha1.EnvoyGatewayRollout{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rollout.envoyproxy.io/v1alpha1",
+			Kind:       "EnvoyGatewayRollout",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "eg",
-			Namespace: ns,
+			Namespace: namespace,
 		},
 		Spec: rolloutv1alpha1.EnvoyGatewayRolloutSpec{
 			Version:         targetVer,
-			TargetNamespace: ns,
+			TargetNamespace: namespace,
 			Gateway: rolloutv1alpha1.GatewayConfig{
-				Name: "eg",
+				Name: cfg.GatewayName,
 			},
 			EnvoyProxy: rolloutv1alpha1.EnvoyProxyConfig{
-				Name: "eg-proxy",
+				Name:         cfg.EnvoyProxyName,
+				NodeSelector: cfg.NodeSelector,
+				Tolerations:  cfg.Tolerations,
+				Annotations:  cfg.Annotations,
 			},
 			Strategy: rolloutv1alpha1.RolloutStrategy{
 				Steps: []rolloutv1alpha1.RolloutStep{
@@ -599,16 +673,96 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 		},
 	}
 
+	yamlBytes, _ := yaml.Marshal(rollout)
+	return string(yamlBytes)
+}
+
+func (s *Server) handleRolloutTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	targetVer := r.URL.Query().Get("targetVersion")
+	if targetVer == "" {
+		targetVer = "v1.8.0"
+	}
+	namespace := r.URL.Query().Get("namespace")
+	if namespace == "" {
+		namespace = "envoy-gateway-system"
+	}
+
+	cfg := s.discoverExistingConfig(r.Context(), namespace)
+	tmpl := s.generateRolloutTemplate(targetVer, namespace, cfg)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"yaml":          tmpl,
+		"targetVersion": targetVer,
+		"namespace":     namespace,
+		"discovered":    cfg,
+	})
+}
+
+func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		TargetVersion string `json:"targetVersion"`
+		Namespace     string `json:"namespace"`
+		YAML          string `json:"yaml"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	rollout := &rolloutv1alpha1.EnvoyGatewayRollout{}
+
+	if strings.TrimSpace(req.YAML) != "" {
+		if err := yaml.Unmarshal([]byte(req.YAML), rollout); err != nil {
+			http.Error(w, fmt.Sprintf("Invalid YAML manifest: %v", err), http.StatusBadRequest)
+			return
+		}
+	} else {
+		targetVer := strings.TrimSpace(req.TargetVersion)
+		if targetVer == "" {
+			http.Error(w, "targetVersion or yaml is required", http.StatusBadRequest)
+			return
+		}
+		ns := strings.TrimSpace(req.Namespace)
+		if ns == "" {
+			ns = "envoy-gateway-system"
+		}
+		cfg := s.discoverExistingConfig(r.Context(), ns)
+		tmplStr := s.generateRolloutTemplate(targetVer, ns, cfg)
+		if err := yaml.Unmarshal([]byte(tmplStr), rollout); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to generate rollout: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if rollout.Name == "" {
+		rollout.Name = "eg"
+	}
+	if rollout.Namespace == "" {
+		rollout.Namespace = "envoy-gateway-system"
+	}
+	if rollout.Spec.TargetNamespace == "" {
+		rollout.Spec.TargetNamespace = rollout.Namespace
+	}
+	ns := rollout.Namespace
+	targetVer := rollout.Spec.Version
+
 	egStatus := s.detectEnvoyGateway(r.Context(), ns)
 
 	if err := s.client.Create(r.Context(), rollout); err != nil {
 		if errors.IsAlreadyExists(err) {
 			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				current := &rolloutv1alpha1.EnvoyGatewayRollout{}
-				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: "eg"}, current); err != nil {
+				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: rollout.Name}, current); err != nil {
 					return err
 				}
-				current.Spec.Version = targetVer
+				current.Spec = rollout.Spec
 				current.Spec.Control.Paused = false
 				current.Spec.Control.Abort = false
 
@@ -637,7 +791,7 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 		if egStatus.Installed && egStatus.Version != "" {
 			_ = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				current := &rolloutv1alpha1.EnvoyGatewayRollout{}
-				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: "eg"}, current); err != nil {
+				if err := s.client.Get(r.Context(), client.ObjectKey{Namespace: ns, Name: rollout.Name}, current); err != nil {
 					return err
 				}
 				current.Status.CurrentVersion = egStatus.Version
@@ -651,6 +805,6 @@ func (s *Server) handleBootstrapRollout(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Rollout successfully initiated",
-		"name":    "eg",
+		"name":    rollout.Name,
 	})
 }
